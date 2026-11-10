@@ -7,14 +7,14 @@ Mã nguồn 5 bài lab, gồm server, client có giao diện, hướng dẫn ch�
 | 1 | [Lab1-Chat](Lab1-Chat/) | Chat riêng TCP, phòng chung UDP multicast, thông báo LAN broadcast, gửi tệp, lịch sử và dashboard server |
 | 2 | [Lab2-FTP](Lab2-FTP/) | FTP server/client, giao diện hai khung, đăng nhập, upload/download và database audit |
 | 3 | [Lab3-Mail](Lab3-Mail/) | Ya-mail, đăng ký/đăng nhập, SMTP + POP3, SQLite và gửi thư ra ngoài qua Gmail relay |
-| 4 | [Lab4-Web](Lab4-Web/) | Trình duyệt JavaFX, GET/HEAD/POST, history, upload/download và dịch vụ HTTP HTML/JSON |
+| 4 | [Lab4-Web](Lab4-Web/) | JavaFX + server Java, Model/Service/ViewModel, soạn POST tùy nhập, GET/HEAD, history và download |
 | 5 | [Lab5-RMI](Lab5-RMI/) | CRUD qua Java RMI, hai node A/B, lưu dữ liệu, hàng đợi đồng bộ và dashboard |
 
 ## Chuẩn bị
 
 - Windows và PowerShell cho các lệnh bên dưới.
-- JDK 23+ và `JAVA_HOME` trỏ đến thư mục JDK; thêm `bin` của JDK vào `PATH`. Lab1, Lab2 và Lab5 dùng được JDK 17+.
-- Python 3.12+ cho Lab3 và Lab4.
+- JDK 23+ và `JAVA_HOME` trỏ đến thư mục JDK; thêm `bin` của JDK vào `PATH`. Lab1, Lab2, Lab4 và Lab5 dùng được JDK 17+.
+- Python 3.12+ cho Lab3. Lab4 chạy hoàn toàn bằng Java.
 - Maven cho lần tải thư viện đầu tiên của Lab3. Lab4 có Maven Wrapper để tải JavaFX 21.
 
 Mở PowerShell tại thư mục repo sau khi clone. Nếu PowerShell chặn script trong phiên hiện tại:
@@ -63,7 +63,7 @@ Launcher mở server cục bộ và giao diện Ya-mail. Chọn **Đăng ký Ya-
 ```powershell
 cd Lab4-Web
 .\mvnw.cmd -q package
-python web_service.py serve --port 8080
+.\scripts\run-server.ps1 -Port 8080
 # Terminal khác, tại Lab4-Web:
 .\scripts\run-client.ps1 -HomeUrl http://127.0.0.1:8080/
 ```
@@ -91,7 +91,7 @@ Chạy tại thư mục từng lab:
 | Lab1 | `.\scripts\test.ps1` |
 | Lab2 | `.\scripts\test.ps1` |
 | Lab3 | `.\test.ps1` hoặc `python .qa/feature_test.py` |
-| Lab4 | `.\test.ps1` hoặc `.\scripts\test-features.ps1` |
+| Lab4 | `.\test.ps1` hoặc `.\test.ps1 -Ui` (JavaFX) |
 | Lab5 | `.\test.cmd` hoặc `.\.qa\run-feature-checks.ps1` |
 
 Xem [kết quả kiểm tra bản mã nguồn](KIEM-THU.md). Kiểm tra gửi Gmail thật và cấu hình hai máy vật lý/client VM cần đối chiếu trên môi trường sử dụng thực tế; kết quả localhost không xác nhận cấu hình đó.

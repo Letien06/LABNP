@@ -1,158 +1,102 @@
 package com.ronial.browser;
 
-import java.io.*;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import com.ronial.browser.model.HttpRequestData;
+import com.ronial.browser.view.RequestComposer;
+import com.ronial.browser.view.ResponsePane;
+import com.ronial.browser.viewmodel.BrowserViewModel;
+import java.io.File;
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.CompletableFuture;
-import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.fxml.*;
 import javafx.scene.control.*;
 import javafx.scene.web.*;
 import javafx.stage.DirectoryChooser;
 
-public class ClientController implements Initializable {
+/** Connects browser controls to WebEngine and the HTTP view model. */
+public class ClientController implements Initializable, AutoCloseable {
     @FXML private WebView webView;
     @FXML private TextField textField;
     @FXML private Label statusLabel;
     @FXML private Label connectionLabel;
+    @FXML private TabPane browserTabs;
+    @FXML private Tab pageTab;
+    @FXML private Tab responseTab;
+    @FXML private Button cancelRequest;
+    private final BrowserViewModel viewModel = new BrowserViewModel();
+    private final ResponsePane responsePane = new ResponsePane();
     private WebEngine engine;
     private double webZoom = 1;
-
+    private boolean closed;
+    private final java.util.List<RequestComposer> composers = new java.util.ArrayList<>();
     @Override public void initialize(URL location, ResourceBundle resources) {
         engine = webView.getEngine();
+        statusLabel.textProperty().bind(viewModel.statusProperty());
+        cancelRequest.disableProperty().bind(viewModel.busyProperty().not());
+        responseTab.setContent(responsePane);
+        viewModel.responseProperty().addListener((observable, before, result) -> {
+            if (result != null) { responsePane.display(result); browserTabs.getSelectionModel().select(responseTab); }
+        });
         engine.getLoadWorker().stateProperty().addListener((o, previous, state) -> {
-            if (state == Worker.State.RUNNING) statusLabel.setText("Loading…");
+            if (state == Worker.State.RUNNING) {
+                viewModel.navigationStarted(); browserTabs.getSelectionModel().select(pageTab);
+            }
             if (state == Worker.State.SUCCEEDED) {
                 String url = engine.getLocation();
                 if (url.startsWith("http")) {
                     textField.setText(url);
                     connectionLabel.setText(url.startsWith("https:") ? "HTTPS" : "HTTP • local / unencrypted");
                 }
-                statusLabel.setText("Ready");
-            } else if (state == Worker.State.FAILED) {
-                statusLabel.setText("Could not load this address");
-            }
+                if (!viewModel.busyProperty().get()) viewModel.setStatus("Ready");
+            } else if (state == Worker.State.FAILED && !viewModel.busyProperty().get()) viewModel.setStatus("Could not load this address");
         });
         home();
     }
-
-    public void home() {
-        textField.setText(System.getProperty("lab4.home", "http://127.0.0.1:8080/"));
-        loadPage();
-    }
-
-    private String address() {
-        String value = textField.getText() == null ? "" : textField.getText().trim();
-        if (value.isEmpty()) throw new IllegalArgumentException("Enter a web address");
-        if (!value.contains("://")) value = "http://" + value;
-        try {
-            URL url = URI.create(value).toURL();
-            if (!(url.getProtocol().equals("http") || url.getProtocol().equals("https")))
-                throw new IllegalArgumentException("Use an HTTP or HTTPS address");
-            return url.toString();
-        } catch (Exception ex) { throw new IllegalArgumentException("Invalid web address", ex); }
-    }
-
+    public BrowserViewModel getViewModel() { return viewModel; }
+    public void home() { textField.setText(System.getProperty("lab4.home", "http://127.0.0.1:8080/")); loadPage(); }
     public void loadPage() {
-        try { engine.load(address()); }
-        catch (IllegalArgumentException ex) { statusLabel.setText(ex.getMessage()); }
+        try {
+            String address = HttpRequestData.parseAddress(textField.getText()).toString();
+            viewModel.navigationStarted(); browserTabs.getSelectionModel().select(pageTab); engine.load(address);
+        } catch (IllegalArgumentException ex) { viewModel.setStatus(ex.getMessage()); }
     }
-
-    private static String escaped(String value) {
-        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    public void headRequest() {
+        try {
+            var request = new HttpRequestData(HttpRequestData.parseAddress(textField.getText()), "HEAD", Map.of(), "");
+            engine.getLoadWorker().cancel(); viewModel.send(request);
+        } catch (IllegalArgumentException ex) { viewModel.setStatus(ex.getMessage()); }
     }
-
-    private static HttpURLConnection connection(String url, String method) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) URI.create(url).toURL().openConnection();
-        c.setRequestMethod(method);
-        c.setConnectTimeout(10_000);
-        c.setReadTimeout(15_000);
-        return c;
+    public void postRequest() {
+        RequestComposer composer = new RequestComposer(textField.getScene().getWindow(), textField.getText(), viewModel,
+                () -> engine.getLoadWorker().cancel());
+        composer.setOnClosed(() -> composers.remove(composer));
+        composers.add(composer); composer.show();
     }
-
-    private void request(String method) {
-        final String url;
-        try { url = address(); }
-        catch (IllegalArgumentException ex) { statusLabel.setText(ex.getMessage()); return; }
-        statusLabel.setText(method + " request…");
-        CompletableFuture.supplyAsync(() -> {
-            HttpURLConnection c = null;
-            try {
-                c = connection(url, method);
-                if (method.equals("POST")) {
-                    c.setDoOutput(true);
-                    c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-                    try (OutputStream out = c.getOutputStream()) {
-                        out.write("message=Lab4+POST+request".getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-                int code = c.getResponseCode();
-                StringBuilder result = new StringBuilder();
-                if (method.equals("HEAD")) {
-                    c.getHeaderFields().forEach((key, values) -> result.append(key == null ? "Status" : key)
-                        .append(": ").append(String.join(", ", values)).append('\n'));
-                } else {
-                    InputStream body = code >= 400 ? c.getErrorStream() : c.getInputStream();
-                    if (body != null) try (body) { result.append(new String(body.readAllBytes(), StandardCharsets.UTF_8)); }
-                }
-                return "<html><head><meta charset='utf-8'></head><body style='font:16px Segoe UI;padding:28px;color:#203656'>"
-                    + "<h2>" + method + " · HTTP " + code + "</h2><p>" + escaped(url)
-                    + "</p><pre style='padding:24px;background:#eef3fa;white-space:pre-wrap'>" + escaped(result.toString()) + "</pre></body></html>";
-            } catch (Exception ex) { throw new java.util.concurrent.CompletionException(ex); }
-            finally { if (c != null) c.disconnect(); }
-        }).whenComplete((html, error) -> Platform.runLater(() -> {
-            if (error == null) engine.loadContent(html, "text/html");
-            else statusLabel.setText(method + " failed: " + error.getCause().getMessage());
-        }));
-    }
-
-    public void headRequest() { request("HEAD"); }
-    public void postRequest() { request("POST"); }
+    public void cancelRequest() { viewModel.cancel(); engine.getLoadWorker().cancel(); }
     public void refreshPage() { loadPage(); }
     public void zoomIn() { webZoom = Math.min(3, webZoom + .25); webView.setZoom(webZoom); }
     public void zoomOut() { webZoom = Math.max(.25, webZoom - .25); webView.setZoom(webZoom); }
-    public void displayHistory() { new HistoryWindow(engine.getHistory()).show(); }
-    public void back() { WebHistory h = engine.getHistory(); if (h.getCurrentIndex() > 0) h.go(-1); }
-    public void forward() { WebHistory h = engine.getHistory(); if (h.getCurrentIndex() + 1 < h.getEntries().size()) h.go(1); }
-    public boolean isValidUrl(String value) {
-        try { String p = URI.create(value).toURL().getProtocol(); return p.equals("http") || p.equals("https"); }
-        catch (Exception ex) { return false; }
-    }
-
-    /** Shared by the download button and functional test; keeps network I/O off the UI thread. */
+    public void displayHistory() { new HistoryWindow(engine.getHistory(), textField.getScene().getWindow()).show(); }
+    public void back() { WebHistory h = engine.getHistory(); if (h.getCurrentIndex() > 0) { viewModel.navigationStarted(); h.go(-1); } }
+    public void forward() { WebHistory h = engine.getHistory(); if (h.getCurrentIndex() + 1 < h.getEntries().size()) { viewModel.navigationStarted(); h.go(1); } }
+    public boolean isValidUrl(String value) { try { HttpRequestData.parseAddress(value); return true; } catch (IllegalArgumentException ex) { return false; } }
     public CompletableFuture<Path> downloadTo(Path directory) {
-        final String url = address();
-        statusLabel.setText("Downloading…");
-        CompletableFuture<Path> future = CompletableFuture.supplyAsync(() -> {
-            HttpURLConnection c = null;
-            try {
-                c = connection(url, "GET");
-                int code = c.getResponseCode();
-                if (code < 200 || code >= 300) throw new IOException("HTTP " + code);
-                String path = URI.create(url).getPath();
-                String name = Path.of(path).getFileName() == null ? "download.bin" : Path.of(path).getFileName().toString();
-                Files.createDirectories(directory);
-                Path destination = directory.resolve(name);
-                try (InputStream input = c.getInputStream()) { Files.copy(input, destination, StandardCopyOption.REPLACE_EXISTING); }
-                return destination;
-            } catch (IOException ex) { throw new java.util.concurrent.CompletionException(ex); }
-            finally { if (c != null) c.disconnect(); }
-        });
-        future.whenComplete((destination, error) -> Platform.runLater(() -> statusLabel.setText(error == null
-            ? "Downloaded: " + destination : "Download failed: " + error.getCause().getMessage())));
-        return future;
+        engine.getLoadWorker().cancel();
+        return viewModel.download(textField.getText(), directory);
     }
-
     public void downloadVideo() {
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle("Choose download folder");
+        DirectoryChooser chooser = new DirectoryChooser(); chooser.setTitle("Choose download folder");
         File directory = chooser.showDialog(textField.getScene().getWindow());
-        if (directory != null) {
-            try { downloadTo(directory.toPath()); }
-            catch (IllegalArgumentException ex) { statusLabel.setText(ex.getMessage()); }
-        }
+        if (directory != null) downloadTo(directory.toPath());
+    }
+    @Override public void close() {
+        if (closed) return;
+        closed = true;
+        java.util.List.copyOf(composers).forEach(RequestComposer::close);
+        composers.clear();
+        engine.getLoadWorker().cancel(); viewModel.close();
     }
 }

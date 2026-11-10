@@ -23,9 +23,15 @@
     <Button onAction="#loadPage" text="GET" styleClass="method-get"/>
     <Button onAction="#postRequest" text="POST" styleClass="method-post"/>
     <Button onAction="#headRequest" text="HEAD" styleClass="method-head"/>
+    <Button fx:id="cancelRequest" id="cancelRequest" onAction="#cancelRequest" text="Cancel request" styleClass="toolbar-button"/>
     <Region HBox.hgrow="ALWAYS"/>
     <Button onAction="#zoomOut" text="−" styleClass="icon-button"/><Label text="Zoom" styleClass="section-label"/><Button onAction="#zoomIn" text="＋" styleClass="icon-button"/>
   </HBox>
-  <WebView fx:id="webView" VBox.vgrow="ALWAYS"/>
+  <TabPane fx:id="browserTabs" id="browserTabs" VBox.vgrow="ALWAYS" tabClosingPolicy="UNAVAILABLE">
+    <tabs>
+      <Tab fx:id="pageTab" text="Browser"><WebView fx:id="webView"/></Tab>
+      <Tab fx:id="responseTab" text="HTTP response"/>
+    </tabs>
+  </TabPane>
   <HBox styleClass="status-bar"><Label fx:id="statusLabel" text="Ready"/><Region HBox.hgrow="ALWAYS"/><Label text="JavaFX WebView"/></HBox>
 </VBox>

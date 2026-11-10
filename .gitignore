@@ -41,7 +41,5 @@ Lab5-RMI/data-*/
 # Keep only the source helpers used by the published checks
 **/.qa/*
 !Lab3-Mail/.qa/feature_test.py
-!Lab4-Web/.qa/BrowserFunctionalTest.java
-!Lab4-Web/.qa/functional_test.py
 !Lab5-RMI/.qa/FunctionalVerification.java
 !Lab5-RMI/.qa/run-feature-checks.ps1

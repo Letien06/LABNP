@@ -10,6 +10,7 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.Button;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import javafx.scene.web.WebHistory;
 
 public class HistoryWindow {
@@ -18,19 +19,17 @@ public class HistoryWindow {
     private ListView<String> listView;
 
     public HistoryWindow(WebHistory history) {
+        this(history, null);
+    }
+
+    public HistoryWindow(WebHistory history, Window owner) {
         stage = new Stage();
+        if (owner != null) stage.initOwner(owner);
         stage.setTitle("Lịch sử duyệt web");
 
         listView = new ListView<>();
         ObservableList<WebHistory.Entry> entries = history.getEntries();
 
-//        for (WebHistory.Entry entry : entries) {
-//            listView.getItems().add(entry.getUrl());
-//        }
-//        for (WebHistory.Entry entry : entries) {
-//            listView.getItems().add(entry.getTitle() + " (" + entry.getLastVisitedDate() + "): " + entry.getUrl());
-//        }
-//
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
         for (int i = entries.size() - 1; i >= 0; i--) {
