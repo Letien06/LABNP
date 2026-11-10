@@ -1,0 +1,5 @@
+out/
+sources.txt
+data-*/
+*.bin
+*.tmp

@@ -1,0 +1,1 @@
+$ErrorActionPreference="Stop"; Set-Location (Join-Path $PSScriptRoot ".."); New-Item -ItemType Directory -Force out | Out-Null; javac --release 17 -encoding UTF-8 -d out src/main/java/lab1/chat/*.java; if($LASTEXITCODE -ne 0){ exit $LASTEXITCODE }; Write-Host "Built Lab1-Chat in out/"

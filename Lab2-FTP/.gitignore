@@ -1,0 +1,4 @@
+target/
+data/ftp.db
+data/root/*
+!data/root/.gitkeep

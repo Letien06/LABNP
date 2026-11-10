@@ -1,0 +1,47 @@
+# Generated builds and editor settings
+**/target/
+**/out/
+**/build/
+**/.idea/
+**/.vscode/
+**/__pycache__/
+*.class
+*.py[cod]
+*.log
+*.err
+*.tmp
+*.bin
+**/sources.txt
+**/.qa-client-cp.txt
+
+# Accounts, mail, credentials and local configuration
+*.db
+*.db-*
+*.db.*
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+**/keys/
+**/logs/
+**/mails/
+
+# User content and runtime state
+Lab1-Chat/data/
+Lab1-Chat/test-data/
+Lab1-Chat/test-temp/
+Lab1-Chat/ui-test-data/
+Lab2-FTP/data/root/*
+!Lab2-FTP/data/root/.gitkeep
+**/downloads/
+**/history.json
+Lab5-RMI/data-*/
+
+# Keep only the source helpers used by the published checks
+**/.qa/*
+!Lab3-Mail/.qa/feature_test.py
+!Lab4-Web/.qa/BrowserFunctionalTest.java
+!Lab4-Web/.qa/functional_test.py
+!Lab5-RMI/.qa/FunctionalVerification.java
+!Lab5-RMI/.qa/run-feature-checks.ps1

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.web.WebView?>
+<VBox styleClass="browser-shell" xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ronial.browser.ClientController" stylesheets="@browser.css">
+  <HBox styleClass="title-bar" alignment="CENTER_LEFT" spacing="10">
+    <Label text="◉  Ronial Browser" styleClass="brand"/><Region HBox.hgrow="ALWAYS"/>
+    <Label text="Lab 4 • HTTP client" styleClass="subtitle"/>
+  </HBox>
+  <HBox styleClass="tab-strip" spacing="6">
+    <Button text="⌂ Home" onAction="#home" styleClass="tab-button"/><Region HBox.hgrow="ALWAYS"/><Label fx:id="connectionLabel" text="HTTP" styleClass="status-pill"/>
+  </HBox>
+  <HBox styleClass="toolbar" alignment="CENTER" spacing="8">
+    <Button onAction="#back" text="‹" styleClass="icon-button"/>
+    <Button onAction="#forward" text="›" styleClass="icon-button"/>
+    <Button onAction="#refreshPage" text="↻" styleClass="icon-button"/>
+    <TextField fx:id="textField" onAction="#loadPage" promptText="Search or enter web address" styleClass="address-field" HBox.hgrow="ALWAYS"/>
+    <Button onAction="#displayHistory" text="History" styleClass="toolbar-button"/>
+    <Button onAction="#downloadVideo" text="Downloads" styleClass="toolbar-button"/>
+  </HBox>
+  <HBox styleClass="action-bar" alignment="CENTER_LEFT" spacing="8">
+    <Label text="HTTP actions" styleClass="section-label"/>
+    <Button onAction="#loadPage" text="GET" styleClass="method-get"/>
+    <Button onAction="#postRequest" text="POST" styleClass="method-post"/>
+    <Button onAction="#headRequest" text="HEAD" styleClass="method-head"/>
+    <Region HBox.hgrow="ALWAYS"/>
+    <Button onAction="#zoomOut" text="−" styleClass="icon-button"/><Label text="Zoom" styleClass="section-label"/><Button onAction="#zoomIn" text="＋" styleClass="icon-button"/>
+  </HBox>
+  <WebView fx:id="webView" VBox.vgrow="ALWAYS"/>
+  <HBox styleClass="status-bar"><Label fx:id="statusLabel" text="Ready"/><Region HBox.hgrow="ALWAYS"/><Label text="JavaFX WebView"/></HBox>
+</VBox>

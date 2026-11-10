@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  db:
+    image: mysql
+    container_name: mysql-mail-server
+    restart: always
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: dockerDb
+      MYSQL_DATABASE: mailsv_udp
+      MYSQL_USER: mailsv
+      MYSQL_PASSWORD: mailsv
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - /etc/localtime:/etc/localtime:ro
+volumes:
+  mysql-data:

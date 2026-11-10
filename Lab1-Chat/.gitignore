@@ -1,0 +1,12 @@
+out/
+target/
+data/messages.log
+data/uploads/*
+downloads/
+test-data/
+test-temp/
+test-server.*
+.qa/
+ui-test-data/
+ui-*.log
+ui-*.err

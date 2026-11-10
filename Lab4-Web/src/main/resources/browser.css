@@ -1,0 +1,19 @@
+.browser-shell { -fx-background-color: #f5f7fb; -fx-font-family: "Segoe UI"; }
+.title-bar { -fx-padding: 12 18 8 18; -fx-background-color: linear-gradient(to right,#152238,#203657); }
+.brand { -fx-text-fill: white; -fx-font-size: 17px; -fx-font-weight: bold; }
+.subtitle { -fx-text-fill: #b8c7dc; -fx-font-size: 12px; }
+.tab-strip { -fx-padding: 5 14 4 14; -fx-background-color: #203657; }
+.tab-button { -fx-background-color: #f5f7fb; -fx-text-fill: #203657; -fx-background-radius: 8 8 0 0; -fx-padding: 7 14; }
+.status-pill { -fx-text-fill: #b8f3d0; -fx-font-size: 11px; -fx-padding: 5 10; -fx-background-color: #285947; -fx-background-radius: 12; }
+.toolbar,.action-bar { -fx-padding: 9 14; -fx-background-color: white; -fx-border-color: #dbe3ef; -fx-border-width: 0 0 1 0; }
+.address-field { -fx-background-color: #eef2f8; -fx-background-radius: 18; -fx-border-color: #d4ddea; -fx-border-radius: 18; -fx-padding: 8 15; }
+.address-field:focused { -fx-border-color: #4a86e8; -fx-background-color: white; }
+.icon-button,.toolbar-button,.method-get,.method-post,.method-head { -fx-background-radius: 8; -fx-cursor: hand; -fx-padding: 7 11; }
+.icon-button { -fx-background-color: transparent; -fx-font-size: 18px; -fx-text-fill: #44546a; }
+.icon-button:hover,.toolbar-button:hover { -fx-background-color: #e8eef8; }
+.toolbar-button { -fx-background-color: #edf2f8; -fx-text-fill: #33455e; }
+.method-get { -fx-background-color: #d9f5e5; -fx-text-fill: #14733b; }
+.method-post { -fx-background-color: #fff0d0; -fx-text-fill: #956100; }
+.method-head { -fx-background-color: #e3e7ff; -fx-text-fill: #3c4ca0; }
+.section-label { -fx-text-fill: #64748b; -fx-font-size: 11px; -fx-font-weight: bold; }
+.status-bar { -fx-padding: 5 14; -fx-background-color: #e9eef5; -fx-text-fill: #64748b; -fx-font-size: 11px; }
