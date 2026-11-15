@@ -7,7 +7,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$python = (Get-Command python -CommandType Application).Source
+$pythonCommand = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notlike '*\Microsoft\WindowsApps\*' } |
+    Select-Object -First 1
+if (!$pythonCommand) {
+    throw 'Install Python 3.12 or newer and add it to PATH.'
+}
+$python = $pythonCommand.Source
 & $python -c 'import mysql.connector'
 if ($LASTEXITCODE -ne 0) {
     throw 'Install MySQL dependencies with python -m pip install -r requirements-mysql.txt.'
