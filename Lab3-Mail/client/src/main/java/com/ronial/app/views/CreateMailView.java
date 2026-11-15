@@ -13,7 +13,6 @@ import org.json.JSONObject;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.StringJoiner;
@@ -30,7 +29,7 @@ public class CreateMailView extends JFrame {
     private Timer autosave;
     private JLabel draftStatus;
     private JButton sendButton, discardButton;
-    private boolean draftBusy, closing, relayBusy, sent;
+    private boolean draftBusy, closing, sent;
     private boolean sending, discarding;
 
     public CreateMailView(MailView mailView) {
@@ -97,25 +96,9 @@ public class CreateMailView extends JFrame {
         commandRow.add(sendButton, BorderLayout.WEST);
         actions.add(commandRow, BorderLayout.NORTH);
         if (mailService instanceof ProtocolMailService protocol && protocol.usesLocalServer()) {
-            JPanel relayControls = new JPanel(new BorderLayout(8, 0));
-            relayControls.setOpaque(false);
-            JButton connect = textButton("Kết nối Gmail");
-            JLabel status = statusLabel("Đang kiểm tra kết nối Gmail…");
-            if (protocol.canConfigureGmailRelay()) {
-                connect.setToolTipText("Dùng Gmail của bạn để gửi thư đến địa chỉ bên ngoài Ya-mail");
-                connect.addActionListener(e -> configureRelay(protocol, connect, status));
-                relayControls.add(connect, BorderLayout.WEST);
-            }
-            relayControls.add(status, BorderLayout.CENTER);
-
             initDrafts(protocol, restored);
             commandRow.add(discardButton, BorderLayout.EAST);
-            JPanel statusRows = new JPanel(new GridLayout(0, 1, 0, 2));
-            statusRows.setOpaque(false);
-            statusRows.add(relayControls);
-            statusRows.add(draftStatus);
-            actions.add(statusRows, BorderLayout.SOUTH);
-            refreshRelayStatus(protocol, connect, status);
+            actions.add(draftStatus, BorderLayout.SOUTH);
         }
         card.add(actions, BorderLayout.SOUTH);
         anchorComposer(this, mailView, new Dimension(560, 530));
@@ -322,7 +305,7 @@ public class CreateMailView extends JFrame {
         messageArea.setEditable(!locked);
         attachLink.setEditable(!locked);
         discardButton.setEnabled(!locked);
-        sendButton.setEnabled(!relayBusy && !closing && !sending && !discarding);
+        sendButton.setEnabled(!closing && !sending && !discarding);
     }
 
     private void advanceDraft() {
@@ -435,91 +418,5 @@ public class CreateMailView extends JFrame {
         }
         if (notify) Toast.error(error.getMessage());
         updateDraftControls();
-    }
-    private void refreshRelayStatus(ProtocolMailService protocol, JButton connect, JLabel status) {
-        connect.setEnabled(false);
-        new SwingWorker<String, Void>() {
-            @Override protected String doInBackground() throws IOException { return protocol.gmailRelaySender(); }
-
-            @Override protected void done() {
-                try {
-                    showRelaySender(get(), protocol, connect, status);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                } catch (ExecutionException ex) {
-                    status.setText("Chưa kiểm tra được Gmail gửi đi");
-                } finally {
-                    connect.setEnabled(true);
-                }
-            }
-        }.execute();
-    }
-
-    private void showRelaySender(String sender, ProtocolMailService protocol, JButton connect, JLabel status) {
-        if (sender.isBlank()) {
-            connect.setText("Kết nối Gmail");
-            status.setText(protocol.canConfigureGmailRelay()
-                    ? "Gửi ra ngoài cần kết nối Gmail"
-                    : "Chưa cấu hình Gmail gửi đi");
-        } else {
-            connect.setText("Đổi Gmail gửi đi");
-            status.setText("Gmail gửi đi: " + sender);
-        }
-    }
-
-    private void configureRelay(ProtocolMailService protocol, JButton connect, JLabel status) {
-        JTextField address = new JTextField(28);
-        JPasswordField appPassword = new JPasswordField(28);
-        JPanel fields = new JPanel(new GridLayout(0, 1, 0, 6));
-        fields.add(new JLabel("Nhập Gmail của bạn để gửi thư ra ngoài."));
-        fields.add(new JLabel("Gmail gửi đi"));
-        fields.add(address);
-        fields.add(new JLabel("Mật khẩu ứng dụng Google"));
-        fields.add(appPassword);
-        fields.add(new JLabel("Cấu hình dùng trong phiên Ya-mail này."));
-        int choice = JOptionPane.showConfirmDialog(this, fields, "Kết nối Gmail",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        String gmail = address.getText().trim();
-        char[] secret = appPassword.getPassword();
-        appPassword.setText("");
-        if (choice != JOptionPane.OK_OPTION || gmail.isEmpty() || secret.length == 0) {
-            Arrays.fill(secret, '\0');
-            if (choice == JOptionPane.OK_OPTION) {
-                JOptionPane.showMessageDialog(this, "Nhập Gmail gửi đi và mật khẩu ứng dụng Google.",
-                        "Kết nối Gmail", JOptionPane.WARNING_MESSAGE);
-            }
-            return;
-        }
-
-        connect.setEnabled(false);
-        relayBusy = true;
-        updateDraftControls();
-        status.setText("Đang xác thực với Gmail…");
-        new SwingWorker<String, Void>() {
-            @Override protected String doInBackground() throws IOException {
-                try {
-                    return protocol.configureGmailRelay(gmail, secret);
-                } finally {
-                    Arrays.fill(secret, '\0');
-                }
-            }
-
-            @Override protected void done() {
-                relayBusy = false;
-                updateDraftControls();
-                if (!isDisplayable()) return;
-                try {
-                    showRelaySender(get(), protocol, connect, status);
-                    connect.setEnabled(true);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    refreshRelayStatus(protocol, connect, status);
-                } catch (ExecutionException ex) {
-                    refreshRelayStatus(protocol, connect, status);
-                    JOptionPane.showMessageDialog(CreateMailView.this, ex.getCause().getMessage(),
-                            "Kết nối Gmail", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
     }
 }

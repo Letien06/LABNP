@@ -217,6 +217,13 @@ public class MailView extends JFrame {
         address.setEnabled(false);
         menu.add(address);
         menu.addSeparator();
+        ProtocolMailService protocol = localService();
+        if (protocol != null) {
+            JMenuItem gmail = new JMenuItem("Gmail gửi đi", icon(Symbol.MAIL, 16, BLUE));
+            gmail.addActionListener(e -> new GmailRelayDialog(this, protocol).setVisible(true));
+            menu.add(gmail);
+            menu.addSeparator();
+        }
         JMenuItem logout = new JMenuItem("Đăng xuất");
         logout.addActionListener(e -> leaveMailbox(MailLaunch::launch));
         menu.add(logout);

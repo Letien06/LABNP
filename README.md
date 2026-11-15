@@ -56,7 +56,7 @@ mvn -f client/pom.xml dependency:build-classpath '-Dmdep.outputFile=.qa-client-c
 .\run-client.ps1
 ```
 
-Launcher mở server cục bộ và giao diện Ya-mail. Chọn **Đăng ký Ya-mail** để tạo tài khoản. Để gửi thư ra địa chỉ bên ngoài, mở cửa sổ soạn thư rồi chọn **Kết nối Gmail** và nhập Gmail/App Password của bạn. Cấu hình này được giữ trong bộ nhớ của phiên chạy.
+Launcher mở server cục bộ và giao diện Ya-mail. Chọn **Đăng ký Ya-mail** để tạo tài khoản. Để gửi thư ra địa chỉ bên ngoài, bấm avatar góc trên bên phải, chọn **Gmail gửi đi**, nhập địa chỉ Gmail và mật khẩu ứng dụng Google rồi bấm **Lưu kết nối**. Cấu hình này được giữ trong phiên chạy.
 
 Để xem dữ liệu Lab3 trong MySQL Workbench, chạy `python -m pip install -r requirements-mysql.txt` rồi `.\setup-mysql.ps1`. Thêm `-MigrateSqlite` nếu đang có `mail.db`. [Hướng dẫn kết nối Workbench](Lab3-Mail/#dùng-mysql-với-workbench)
 

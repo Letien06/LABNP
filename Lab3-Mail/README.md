@@ -78,12 +78,11 @@ to compose or Ctrl+F to focus search.
 
 ## Send from Ya-mail to an external address
 
-Start Ya-mail with `./run-client.ps1` and sign in with a Ya-mail account. Open
-the compose window and select **Kết nối Gmail** to enter the Gmail address
-that will send outbound mail and its Google App Password. After saving, you can
-send the draft to an external recipient. The recipient will see the Gmail account
-as the sender. Use **Đổi Gmail gửi đi** to change the Gmail account. The server
-keeps the relay settings for the current session.
+Start Ya-mail with `./run-client.ps1` and sign in with a Ya-mail account. Click
+your avatar in the top right and choose **Gmail gửi đi**. Enter the Gmail address
+and Google App Password, then click **Lưu kết nối**. Ya-mail will use the linked
+Gmail address as the sender for external mail. Open **Gmail gửi đi** again to
+see or change the sender. The server keeps the relay settings for the current session.
 
 You can also configure the relay from PowerShell when starting Ya-mail:
 

@@ -22,9 +22,9 @@ from mailbox_cache import load_messages
 
 LOCAL_SMTP_ERRORS = {
     b"5.7.1 External relay is not configured; ask the server administrator":
-        "Máy chủ Ya-mail chưa cấu hình Gmail chuyển tiếp. Mở Kết nối Gmail trong cửa sổ soạn thư để cấu hình Gmail gửi đi.",
+        "Máy chủ Ya-mail chưa kết nối Gmail. Bấm avatar ở góc trên bên phải rồi chọn Gmail gửi đi.",
     b"5.7.1 External relay is not configured":
-        "Máy chủ Ya-mail chưa cấu hình Gmail chuyển tiếp. Mở Kết nối Gmail trong cửa sổ soạn thư để cấu hình Gmail gửi đi.",
+        "Máy chủ Ya-mail chưa kết nối Gmail. Bấm avatar ở góc trên bên phải rồi chọn Gmail gửi đi.",
     b"5.7.8 Gmail relay authentication failed; check its app password":
         "Gmail từ chối đăng nhập cho máy chủ chuyển tiếp. Hãy nhờ quản trị viên kiểm tra mật khẩu ứng dụng Gmail.",
     b"4.4.2 Gmail relay submission unconfirmed":
