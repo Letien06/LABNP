@@ -6,7 +6,7 @@ Mã nguồn 5 bài lab, gồm server, client có giao diện, hướng dẫn ch�
 |---|---|---|
 | 1 | [Lab1-Chat](Lab1-Chat/) | Chat riêng TCP, phòng chung UDP multicast, thông báo LAN broadcast, gửi tệp, lịch sử và dashboard server |
 | 2 | [Lab2-FTP](Lab2-FTP/) | FTP server/client, giao diện hai khung, đăng nhập, upload/download và database audit |
-| 3 | [Lab3-Mail](Lab3-Mail/) | Ya-mail, đăng ký/đăng nhập, SMTP + POP3, SQLite và gửi thư ra ngoài qua Gmail relay |
+| 3 | [Lab3-Mail](Lab3-Mail/) | Ya-mail, SMTP + POP3, MySQL/SQLite, thư nháp, trạng thái đọc và Gmail relay |
 | 4 | [Lab4-Web](Lab4-Web/) | JavaFX + server Java, Model/Service/ViewModel, soạn POST tùy nhập, GET/HEAD, history và download |
 | 5 | [Lab5-RMI](Lab5-RMI/) | CRUD qua Java RMI, hai node A/B, lưu dữ liệu, hàng đợi đồng bộ và dashboard |
 
@@ -57,6 +57,8 @@ mvn -f client/pom.xml dependency:build-classpath '-Dmdep.outputFile=.qa-client-c
 ```
 
 Launcher mở server cục bộ và giao diện Ya-mail. Chọn **Đăng ký Ya-mail** để tạo tài khoản. Để gửi thư ra địa chỉ bên ngoài, mở cửa sổ soạn thư rồi chọn **Kết nối Gmail** và nhập Gmail/App Password của bạn. Cấu hình này được giữ trong bộ nhớ của phiên chạy.
+
+Để xem dữ liệu Lab3 trong MySQL Workbench, chạy `python -m pip install -r requirements-mysql.txt` rồi `.\setup-mysql.ps1`. Thêm `-MigrateSqlite` nếu đang có `mail.db`. [Hướng dẫn kết nối Workbench](Lab3-Mail/#dùng-mysql-với-workbench)
 
 ### Lab4 — Web
 

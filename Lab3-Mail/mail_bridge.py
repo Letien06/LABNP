@@ -17,6 +17,8 @@ from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import formatdate, make_msgid
 
+from mailbox_cache import load_messages
+
 
 LOCAL_SMTP_ERRORS = {
     b"5.7.1 External relay is not configured; ask the server administrator":
@@ -65,8 +67,9 @@ def account_request(data, path, payload=None, admin=False):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         connection.request("POST" if payload is not None else "GET", path, body, headers)
         response = connection.getresponse()
-        raw = response.read(65537)
-        if len(raw) > 65536:
+        limit = 32 * 1024 * 1024 if path == "/mailbox/state" else 65536
+        raw = response.read(limit + 1)
+        if len(raw) > limit:
             raise ValueError("Phản hồi từ máy chủ tài khoản quá lớn.")
         try:
             result = json.loads(raw.decode("utf-8"))
@@ -115,6 +118,20 @@ def refused_rows(refused):
             for address, status in refused.items()]
 
 
+def read_message(box, number, uid):
+    _, body, _ = box.retr(number)
+    msg = BytesParser(policy=email.policy.default).parsebytes(b"\r\n".join(body))
+    part = msg.get_body(preferencelist=("plain", "html"))
+    text = str(part.get_content()) if part else ""
+    if part and part.get_content_type() == "text/html":
+        import re
+        text = html.unescape(re.sub("<[^>]*>", "", text))
+    return {"id": number, "uid": uid, "from": str(msg.get("From", "")), "to": str(msg.get("To", "")),
+            "subject": html.escape(str(msg.get("Subject", ""))), "body": html.escape(text).replace("\n", "<br/>"),
+            "links": "", "contentHtml": "", "seen": False, "createdAt": str(msg.get("Date", "")),
+            "transferFrom": "", "sent": msg.get("X-Lab3-Folder", "") == "sent"}
+
+
 def run(data):
     gmail = data.get("provider") == "gmail"
     action = data["action"]
@@ -133,6 +150,15 @@ def run(data):
     user = str(data["user"]).strip() if gmail else local_address(data["user"])
     password = data["password"]
     host = data.get("host", "127.0.0.1")
+
+    def local_state(action, fields=None):
+        return account_request(data, "/mailbox/state", {**(fields or {}), "user": user,
+                                                       "password": password, "action": action})
+
+    if action in ("list_read", "set_read", "list_drafts", "save_draft", "delete_draft"):
+        if gmail:
+            raise ValueError("Thao tác này dành cho tài khoản Ya-mail.")
+        return local_state(action, data)
 
     def pop():
         box = (poplib.POP3_SSL("pop.gmail.com", 995, timeout=20, context=ssl.create_default_context())
@@ -153,35 +179,29 @@ def run(data):
         box = pop()
         try:
             _, lines, _ = box.uidl()
-            rows = []
-            for line in lines:
-                number, uid = line.decode().split()
-                if action == "delete":
+            if action == "delete":
+                for line in lines:
+                    number, uid = line.decode("ascii").split()
                     if uid == data["uid"]:
                         box.dele(int(number))
                         box.quit()
                         box = None
                         return {}
-                    continue
-                _, body, _ = box.retr(int(number))
-                msg = BytesParser(policy=email.policy.default).parsebytes(b"\r\n".join(body))
-                part = msg.get_body(preferencelist=("plain", "html"))
-                text = str(part.get_content()) if part else ""
-                # Render plain text safely in the existing Swing HTML reader.
-                if part and part.get_content_type() == "text/html":
-                    import re
-                    text = html.unescape(re.sub("<[^>]*>", "", text))
-                rows.append(dict(id=int(number), uid=uid, **{"from": str(msg.get("From", "")),
-                    "to": str(msg.get("To", "")), "subject": html.escape(str(msg.get("Subject", ""))),
-                    "body": html.escape(text).replace("\n", "<br/>"), "links": "", "contentHtml": "",
-                    "seen": False, "createdAt": str(msg.get("Date", "")), "transferFrom": "",
-                    "sent": msg.get("X-Lab3-Folder", "") == "sent"}))
-            if action == "delete":
                 raise ValueError("Message is no longer in the mailbox; refresh the inbox.")
-            return {"messages": rows}
+            known = data.get("knownUids", [])
+            if not isinstance(known, list) or any(not isinstance(uid, str) for uid in known):
+                raise ValueError("Danh sách UIDL không hợp lệ.")
+            result = load_messages(lines, known, lambda number, uid: read_message(box, number, uid))
         finally:
             if box:
-                box.quit()
+                box.close()
+        if not gmail and "knownUids" in data:
+            try:
+                result["readUids"] = local_state("list_read")["uids"]
+            except ValueError:
+                # Keep POP3 usable when the separate account service is offline.
+                result["readStateUnavailable"] = True
+        return result
     if action == "send":
         recipients = [x.strip() for x in data["to"].split(",") if x.strip()]
         if not recipients or any("@" not in x or "\n" in x or "\r" in x for x in recipients):

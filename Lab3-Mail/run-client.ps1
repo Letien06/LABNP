@@ -2,6 +2,7 @@ param(
     [switch]$Gmail,
     [switch]$NoServer,
     [switch]$ConfigureGmailRelay,
+    [ValidateSet('Auto','MySql','Sqlite')][string]$DatabaseBackend = 'Auto',
     [string]$JavaHome = $env:JAVA_HOME,
     [int]$SmtpPort = 2525,
     [int]$PopPort = 8110,
@@ -15,6 +16,23 @@ Push-Location $PSScriptRoot
 $localServer = $null
 $previousAdminToken = $env:YAMAIL_ADMIN_TOKEN
 try {
+    $mysqlLocalSettings = Join-Path $PSScriptRoot '.local/mysql-settings.json'
+    $mysqlLocalCredential = Join-Path $PSScriptRoot '.local/mysql-credential.xml'
+    if (!$Gmail -and !$NoServer) {
+        $useSavedMySql = (Test-Path -LiteralPath $mysqlLocalSettings) -and (Test-Path -LiteralPath $mysqlLocalCredential)
+        if ($DatabaseBackend -eq 'Auto') {
+            if ($env:LAB3_MAIL_BACKEND -eq 'mysql' -or $useSavedMySql) { $DatabaseBackend = 'MySql' }
+            else { $DatabaseBackend = 'Sqlite' }
+        }
+        if ($DatabaseBackend -eq 'MySql' -and !$useSavedMySql -and
+            (!$env:LAB3_MYSQL_USER -or !$env:LAB3_MYSQL_DATABASE -or $null -eq $env:LAB3_MYSQL_PASSWORD)) {
+            throw 'Run .\setup-mysql.ps1 to configure MySQL, or set LAB3_MYSQL_USER, LAB3_MYSQL_PASSWORD and LAB3_MYSQL_DATABASE.'
+        }
+        if ($DatabaseBackend -eq 'MySql') {
+            & python -c 'import mysql.connector'
+            if ($LASTEXITCODE) { throw 'Install the MySQL connector: python -m pip install -r requirements-mysql.txt' }
+        }
+    }
     if (!$JavaHome -or !(Test-Path (Join-Path $JavaHome 'bin/javac.exe'))) {
         $candidate = Get-ChildItem (Join-Path $env:USERPROFILE '.jdks') -Directory -ErrorAction SilentlyContinue |
             Where-Object { Test-Path (Join-Path $_.FullName 'bin/javac.exe') } |
@@ -53,7 +71,19 @@ try {
         }
         $previousRelayUser = $env:YAMAIL_RELAY_USER
         $previousRelayPassword = $env:YAMAIL_RELAY_PASSWORD
+        $mysqlVariableNames = @('LAB3_MYSQL_HOST', 'LAB3_MYSQL_PORT', 'LAB3_MYSQL_DATABASE', 'LAB3_MYSQL_USER', 'LAB3_MYSQL_PASSWORD')
+        $previousMySql = @{}
         try {
+            if ($DatabaseBackend -eq 'MySql' -and $useSavedMySql) {
+                foreach ($variable in $mysqlVariableNames) { $previousMySql[$variable] = [Environment]::GetEnvironmentVariable($variable) }
+                $settings = Get-Content -LiteralPath $mysqlLocalSettings -Raw | ConvertFrom-Json
+                $credential = Import-Clixml -LiteralPath $mysqlLocalCredential
+                $env:LAB3_MYSQL_HOST = $settings.host
+                $env:LAB3_MYSQL_PORT = $settings.port
+                $env:LAB3_MYSQL_DATABASE = $settings.database
+                $env:LAB3_MYSQL_USER = $credential.UserName
+                $env:LAB3_MYSQL_PASSWORD = $credential.GetNetworkCredential().Password
+            }
             if ($ConfigureGmailRelay) {
                 $relayUser = (Read-Host 'Gmail address used to send external mail').Trim()
                 if ($relayUser -notmatch '^[^\s@]+@(gmail|googlemail)\.com$') { throw 'Enter a valid Gmail address.' }
@@ -66,13 +96,14 @@ try {
                     $relaySecret.Dispose()
                 }
             }
-            $localServer = Start-Process -FilePath python -ArgumentList @('-u', 'mail_service.py', 'server', '--smtp-port', $SmtpPort, '--pop3-port', $PopPort, '--account-port', $AccountPort) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput .qa/local-server.log -RedirectStandardError .qa/local-server-error.log
+            $localServer = Start-Process -FilePath python -ArgumentList @('-u', 'mail_service.py', '--backend', $DatabaseBackend.ToLowerInvariant(), 'server', '--smtp-port', $SmtpPort, '--pop3-port', $PopPort, '--account-port', $AccountPort) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput .qa/local-server.log -RedirectStandardError .qa/local-server-error.log
         } finally {
+            foreach ($variable in $previousMySql.Keys) { [Environment]::SetEnvironmentVariable($variable, $previousMySql[$variable]) }
             $env:YAMAIL_RELAY_USER = $previousRelayUser
             $env:YAMAIL_RELAY_PASSWORD = $previousRelayPassword
         }
         $ready = $false
-        $deadline = (Get-Date).AddSeconds(8)
+        $deadline = (Get-Date).AddSeconds(20)
         while (!$localServer.HasExited -and (Get-Date) -lt $deadline) {
             try {
                 $health = Invoke-RestMethod -Uri "http://127.0.0.1:$AccountPort/health" -TimeoutSec 1
@@ -80,6 +111,7 @@ try {
             } catch { Start-Sleep -Milliseconds 200 }
         }
         if (!$ready -or $localServer.HasExited) { throw 'Local mail server could not start. Check .qa/local-server-error.log or use -NoServer for an existing server.' }
+        Write-Host "Ya-mail storage: $DatabaseBackend"
     }
     $provider = if ($Gmail) { 'gmail' } else { 'local' }
     Write-Host $(if ($Gmail) { 'Gmail: sign in with your Gmail address and app password.' } else { 'Local demo account: student@localhost / student' })

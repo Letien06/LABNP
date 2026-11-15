@@ -17,7 +17,7 @@ import java.util.concurrent.CompletableFuture;
 /** SMTP/POP3 adapter; Python standard library handles MIME and TLS. */
 public class ProtocolMailService implements MailService {
     private String username = "", password = "";
-    private final Map<Integer, String> uids = new java.util.concurrent.ConcurrentHashMap<>();
+    private Map<String, CachedMessage> cachedRows = Map.of();
     private final Set<String> seen = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private JSONObject call(String action, JSONObject extra) throws IOException {
@@ -93,30 +93,133 @@ public class ProtocolMailService implements MailService {
         try { account = call("login", new JSONObject()); }
         catch (IOException e) { password = ""; throw e; }
         username = account.optString("email", username);
-        seen.clear();
-        uids.clear();
         view.passwordField.setText("");
         view.dispose();
-        MailView.launch(new User(0, "SMTP / POP3", username, "", ""));
+        ProtocolMailService session = new ProtocolMailService();
+        session.username = username;
+        session.password = password;
+        password = "";
+        MailView.launch(new User(0, "SMTP / POP3", username, "", ""), session);
+    }
+
+    private record CachedMessage(int id, boolean sent, Email email) {
+        MailRow forDisplay(String uid, boolean read) {
+            return new MailRow(uid, new Email(id, email.getFrom(), email.getTo(), email.getSubject(),
+                    email.getBody(), email.getLinks(), email.getContentHtml(), sent || read,
+                    email.getCreatedAt(), email.getTransferFrom()));
+        }
+    }
+
+    public record MailRow(String uid, Email email) {}
+    public record Mailbox(List<MailRow> inbox, List<MailRow> sent, boolean hasReadState) {}
+
+    public Mailbox fetchMailbox() throws IOException {
+        JSONObject result = call("load", new JSONObject().put("knownUids", new JSONArray(cachedRows.keySet())));
+        Map<String, CachedMessage> freshRows = new LinkedHashMap<>();
+        JSONArray changed = result.getJSONArray("messages");
+        JSONArray mailbox = result.optJSONArray("mailbox");
+        Map<String, CachedMessage> nextCache = new LinkedHashMap<>();
+        if (mailbox != null) {
+            for (Object value : changed) {
+                JSONObject row = (JSONObject) value;
+                freshRows.put(row.getString("uid"), parseMessage(row));
+            }
+            for (Object value : mailbox) {
+                JSONObject entry = (JSONObject) value;
+                String uid = entry.getString("uid");
+                CachedMessage row = freshRows.getOrDefault(uid, cachedRows.get(uid));
+                if (row == null) {
+                    cachedRows = Map.of();
+                    throw new IOException("Danh sách thư đã thay đổi. Vui lòng thử làm mới.");
+                }
+                nextCache.put(uid, new CachedMessage(entry.getInt("id"), row.sent(), row.email()));
+            }
+        }
+
+        Set<String> readUids = seen;
+        boolean hasReadState = !result.optBoolean("readStateUnavailable");
+        if (usesLocalServer() && hasReadState) {
+            readUids = new HashSet<>();
+            JSONArray data = result.optJSONArray("readUids");
+            if (data == null) data = call("list_read", new JSONObject()).getJSONArray("uids");
+            for (Object uid : data) readUids.add((String) uid);
+        }
+        List<MailRow> inbox = new ArrayList<>(), sent = new ArrayList<>();
+        if (mailbox == null) {
+            // A full refresh can contain duplicate UIDLs. Keep each server ordinal.
+            for (Object value : changed) {
+                JSONObject data = (JSONObject) value;
+                CachedMessage row = parseMessage(data);
+                String uid = data.getString("uid");
+                (row.sent() ? sent : inbox).add(row.forDisplay(uid, readUids.contains(uid)));
+            }
+        } else {
+            for (var entry : nextCache.entrySet()) {
+                String uid = entry.getKey();
+                CachedMessage row = entry.getValue();
+                (row.sent() ? sent : inbox).add(row.forDisplay(uid, readUids.contains(uid)));
+            }
+        }
+        cachedRows = nextCache;
+        return new Mailbox(inbox, sent, hasReadState);
+    }
+
+    private static CachedMessage parseMessage(JSONObject row) {
+        return new CachedMessage(row.getInt("id"), row.getBoolean("sent"), Email.fromJSON(row.toString()));
     }
 
     @Override public void loadMails(MailView view) throws IOException {
-        JSONArray data = call("load", new JSONObject()).getJSONArray("messages");
-        List<Email> inbox = new ArrayList<>(), sent = new ArrayList<>();
-        uids.clear();
-        for (Object value : data) {
-            JSONObject row = (JSONObject) value;
-            Email email = Email.fromJSON(row.toString());
-            uids.put(email.getId(), row.getString("uid"));
-            email.setSeen(seen.contains(row.getString("uid")) || row.getBoolean("sent"));
-            (row.getBoolean("sent") ? sent : inbox).add(email);
+        view.applyMailbox(fetchMailbox());
+    }
+
+    public void setRead(String uid, boolean read) throws IOException {
+        if (usesLocalServer()) {
+            call("set_read", new JSONObject().put("uid", uid).put("read", read));
+        } else if (read) {
+            seen.add(uid);
+        } else {
+            seen.remove(uid);
         }
-        // Set backing lists before clearing models (selection events may fire).
-        view.getEmailList().clearSelection();
-        view.setInboxEmails(inbox); view.setSentEmails(sent);
-        view.getInboxModel().clear(); view.getSentModel().clear();
-        for (Email email : inbox) view.getInboxModel().addElement((email.isSeen() ? "" : "● ") + email.getSubject());
-        for (Email email : sent) view.getSentModel().addElement(email.getSubject());
+    }
+
+    public record Draft(String id, String to, String subject, String body, String links) {
+        public boolean isEmpty() {
+            return to.isBlank() && subject.isBlank() && body.isBlank() && links.isBlank();
+        }
+
+        public boolean canAutosave() {
+            return to.codePointCount(0, to.length()) <= 2048
+                    && subject.codePointCount(0, subject.length()) <= 1024
+                    && body.codePointCount(0, body.length()) <= 65536
+                    && links.codePointCount(0, links.length()) <= 2048;
+        }
+
+        @Override public String toString() {
+            return (subject.isBlank() ? "(Không có tiêu đề)" : subject) + (to.isBlank() ? "" : " — " + to);
+        }
+    }
+
+    public List<Draft> listDrafts() throws IOException {
+        List<Draft> drafts = new ArrayList<>();
+        for (Object value : call("list_drafts", new JSONObject()).getJSONArray("drafts")) {
+            JSONObject row = (JSONObject) value;
+            drafts.add(new Draft(row.getString("id"), row.getString("to"), row.getString("subject"),
+                    row.getString("body"), row.getString("links")));
+        }
+        return drafts;
+    }
+
+    public void saveDraft(Draft draft) throws IOException {
+        call("save_draft", new JSONObject().put("id", draft.id()).put("to", draft.to())
+                .put("subject", draft.subject()).put("body", draft.body()).put("links", draft.links()));
+    }
+
+    public void deleteDraft(String id) throws IOException {
+        call("delete_draft", new JSONObject().put("id", id));
+    }
+
+    public JSONObject sendDraft(Draft draft) throws IOException {
+        return send(draft.to(), draft.subject(), draft.body(), draft.links());
     }
 
     private JSONObject send(String to, String subject, String body, String links) throws IOException {
@@ -124,8 +227,13 @@ public class ProtocolMailService implements MailService {
         return call("send", new JSONObject().put("to", to).put("subject", subject).put("body", body).put("links", links));
     }
 
-    private void finishSend(JFrame composer, MailView mailbox, JSONObject result) {
+    public void finishSend(JFrame composer, MailView mailbox, JSONObject result) {
         composer.dispose();
+        notifySendResult(result);
+        mailbox.refreshInbox();
+    }
+
+    public void notifySendResult(JSONObject result) {
         String warning = result.optString("warning");
         if (!warning.isBlank()) {
             JSONArray refused = result.optJSONArray("refusedRecipients");
@@ -136,7 +244,6 @@ public class ProtocolMailService implements MailService {
         } else if (result.optBoolean("relayAccepted") || "gmail".equals(System.getProperty("lab3.provider"))) {
             Toast.info("Máy chủ Gmail đã chấp nhận thư.");
         }
-        mailbox.refreshInbox();
     }
     @Override public void sendMail(CreateMailView view) throws IOException {
         JSONObject result = send(view.recipientField.getText(), view.subjectField.getText(), view.messageArea.getText(), view.attachLink.getText());
@@ -145,8 +252,7 @@ public class ProtocolMailService implements MailService {
     @Override public void deleteMail(MailView view) throws IOException {
         int index = view.getEmailList().getSelectedIndex();
         if (index < 0) throw new IOException("Select a message to delete.");
-        Email email = view.getEmailFromTabbedPane(index);
-        call("delete", new JSONObject().put("uid", uids.get(email.getId())));
+        deleteMessage(view.getSelectedMessageUid());
         view.refreshInbox();
     }
     @Override public void transferMail(TransferMailView view) throws IOException {
@@ -155,13 +261,12 @@ public class ProtocolMailService implements MailService {
                 "Forwarded from " + view.email.getFrom() + "\n\n" + text, view.email.getLinks());
         finishSend(view, view.mailView, result);
     }
-    @Override public void readMail(MailView view, Email email) {
-        email.setSeen(true);
-        String uid = uids.get(email.getId());
-        if (uid != null) seen.add(uid);
-        SwingUtilities.invokeLater(() -> {
-            int index = view.getInboxEmails().indexOf(email);
-            if (index >= 0 && index < view.getInboxModel().size()) view.getInboxModel().set(index, email.getSubject());
-        });
+    public void deleteMessage(String uid) throws IOException {
+        call("delete", new JSONObject().put("uid", uid));
+    }
+
+    @Override public void readMail(MailView view, Email email) throws IOException {
+        String uid = view.getSelectedMessageUid();
+        if (uid != null) setRead(uid, true);
     }
 }

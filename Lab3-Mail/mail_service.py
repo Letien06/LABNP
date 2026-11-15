@@ -1,8 +1,8 @@
-"""Small, dependency-free SMTP + POP3 lab service with SQLite persistence.
+"""SMTP + POP3 lab service with SQLite or MySQL persistence.
 
 The implementation is intentionally easy to inspect for a networking lab.  It
 speaks the line-oriented portions of SMTP and POP3 needed by a mail client and
-stores every accepted message in ``mail.db``.  The same module also contains
+stores accepted messages through the configured repository. The module also contains
 helpers for the Gmail SMTP/POP3-over-TLS path; credentials are read only from
 environment variables.
 """
@@ -22,13 +22,16 @@ import smtplib
 import socketserver
 import sqlite3
 import ssl
+import sys
 import threading
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.parser import BytesParser
 from pathlib import Path
 from typing import Iterable
 
+from mailbox_state import draft_id, draft_values, message_id
 from smtp_relay import GmailRelay, RelayError
 
 
@@ -38,6 +41,10 @@ PASSWORD_ROUNDS = 260_000
 
 class DuplicateAccountError(ValueError):
     duplicate_account = True
+
+
+class MailStorageError(Exception):
+    """Storage is temporarily unavailable."""
 
 
 def password_hash(password: str) -> str:
@@ -62,6 +69,30 @@ def normalize_account(address: str) -> str:
     return address if "@" in address else address + "@yamail.local"
 
 
+def validate_registration(name, email, password):
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100 or any(ord(c) < 32 for c in name):
+        raise ValueError("Tên hiển thị cần từ 1 đến 100 ký tự hợp lệ.")
+    if not isinstance(email, str):
+        raise ValueError("Vui lòng nhập tên tài khoản Ya-mail.")
+    address = normalize_account(email)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}@(?:yamail\.local|localhost)", address):
+        raise ValueError("Tên tài khoản cần 3–64 ký tự (chữ, số, dấu chấm, gạch dưới hoặc gạch ngang), thuộc @yamail.local hoặc @localhost.")
+    if (not isinstance(password, str) or not 6 <= len(password) <= 1024
+            or any(ord(character) < 32 or ord(character) == 127 for character in password)):
+        raise ValueError("Mật khẩu cần từ 6 đến 1024 ký tự và không chứa ký tự điều khiển.")
+    return address, name.strip()
+
+
+def parse_delivery(raw):
+    msg = BytesParser(policy=email.policy.default).parsebytes(raw)
+    subject = str(msg.get("Subject", ""))
+    body = msg.get_body(preferencelist=("plain", "html"))
+    text = body.get_content() if body is not None else (msg.get_content() if not msg.is_multipart() else "")
+    if not isinstance(text, str):
+        text = text.decode("utf-8", "replace")
+    return subject, text
+
+
 class MailStore:
     """SQLite-backed users and messages repository.
 
@@ -79,8 +110,13 @@ class MailStore:
         db.row_factory = sqlite3.Row
         return db
 
+    @contextmanager
+    def transaction(self):
+        with closing(self.connect()) as db, db:
+            yield db
+
     def init_db(self) -> None:
-        with self.connect() as db:
+        with self.transaction() as db:
             db.executescript(
                 """
                 PRAGMA journal_mode=WAL;
@@ -101,19 +137,35 @@ class MailStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_messages_recipient
                     ON messages(recipient, deleted, id);
+                CREATE TABLE IF NOT EXISTS message_reads(
+                    owner TEXT NOT NULL COLLATE NOCASE,
+                    message_id INTEGER NOT NULL,
+                    PRIMARY KEY(owner, message_id)
+                );
+                CREATE TABLE IF NOT EXISTS drafts(
+                    owner TEXT NOT NULL COLLATE NOCASE,
+                    id TEXT NOT NULL,
+                    recipient TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    links TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(owner, id)
+                );
                 """
             )
             if "display_name" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
                 db.execute("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
             # A deterministic local account makes the POP3 demo runnable on a
             # fresh checkout.  Students can add more users with ``user``.
-            db.execute(
-                "INSERT OR IGNORE INTO users(email,password,created_at) VALUES(?,?,?)",
-                ("student@localhost", password_hash("student"), now()),
-            )
+            if db.execute("SELECT 1 FROM users WHERE email=?", ("student@localhost",)).fetchone() is None:
+                db.execute(
+                    "INSERT OR IGNORE INTO users(email,password,created_at) VALUES(?,?,?)",
+                    ("student@localhost", password_hash("student"), now()),
+                )
 
     def add_user(self, address: str, password: str) -> None:
-        with self.connect() as db:
+        with self.transaction() as db:
             db.execute(
                 "INSERT INTO users(email,password,created_at) VALUES(?,?,?) "
                 "ON CONFLICT(email) DO UPDATE SET password=excluded.password",
@@ -121,35 +173,26 @@ class MailStore:
             )
 
     def register_user(self, name: str, email: str, password: str) -> dict:
-        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100 or any(ord(c) < 32 for c in name):
-            raise ValueError("Tên hiển thị cần từ 1 đến 100 ký tự hợp lệ.")
-        if not isinstance(email, str):
-            raise ValueError("Vui lòng nhập tên tài khoản Ya-mail.")
-        address = normalize_account(email)
-        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}@(?:yamail\.local|localhost)", address):
-            raise ValueError("Tên tài khoản cần 3–64 ký tự (chữ, số, dấu chấm, gạch dưới hoặc gạch ngang), thuộc @yamail.local hoặc @localhost.")
-        if (not isinstance(password, str) or not 6 <= len(password) <= 1024
-                or any(ord(character) < 32 or ord(character) == 127 for character in password)):
-            raise ValueError("Mật khẩu cần từ 6 đến 1024 ký tự và không chứa ký tự điều khiển.")
+        address, name = validate_registration(name, email, password)
         try:
-            with self.connect() as db:
+            with self.transaction() as db:
                 db.execute("INSERT INTO users(email,password,created_at,display_name) VALUES(?,?,?,?)",
-                           (address, password_hash(password), now(), name.strip()))
+                           (address, password_hash(password), now(), name))
         except sqlite3.IntegrityError:
             raise DuplicateAccountError("Tài khoản đã tồn tại. Vui lòng đăng nhập hoặc chọn tên khác.") from None
-        return {"email": address, "name": name.strip()}
+        return {"email": address, "name": name}
 
     def user_exists(self, address: str) -> bool:
-        with self.connect() as db:
+        with self.transaction() as db:
             return db.execute("SELECT 1 FROM users WHERE email=?", (address.strip().lower(),)).fetchone() is not None
 
     def profile(self, address: str) -> dict | None:
-        with self.connect() as db:
+        with self.transaction() as db:
             row = db.execute("SELECT email,display_name FROM users WHERE email=?", (normalize_account(address),)).fetchone()
         return {"email": row["email"], "name": row["display_name"] or row["email"].split("@")[0]} if row else None
 
     def authenticate(self, address: str, password: str) -> bool:
-        with self.connect() as db:
+        with self.transaction() as db:
             row = db.execute(
                 "SELECT password FROM users WHERE email=?",
                 (normalize_account(address),),
@@ -162,15 +205,10 @@ class MailStore:
         return True
 
     def deliver(self, sender: str, recipients: Iterable[str], raw: bytes) -> int:
-        msg = BytesParser(policy=email.policy.default).parsebytes(raw)
-        subject = str(msg.get("Subject", ""))
-        body = msg.get_body(preferencelist=("plain", "html"))
-        text = body.get_content() if body is not None else (msg.get_content() if not msg.is_multipart() else "")
-        if not isinstance(text, str):
-            text = text.decode("utf-8", "replace")
+        subject, text = parse_delivery(raw)
         count = 0
         stamp = now()
-        with self.connect() as db:
+        with self.transaction() as db:
             for recipient in recipients:
                 recipient = recipient.strip().lower()
                 if not recipient:
@@ -184,7 +222,7 @@ class MailStore:
         return count
 
     def messages(self, user: str) -> list[sqlite3.Row]:
-        with self.connect() as db:
+        with self.transaction() as db:
             return list(
                 db.execute(
                     "SELECT * FROM messages WHERE recipient=? AND deleted=0 ORDER BY id",
@@ -193,11 +231,61 @@ class MailStore:
             )
 
     def mark_deleted(self, message_id: int, user: str) -> None:
-        with self.connect() as db:
-            db.execute(
+        self.mark_deleted_many(user, (message_id,))
+
+    def mark_deleted_many(self, user, ids):
+        with self.transaction() as db:
+            db.executemany(
                 "UPDATE messages SET deleted=1 WHERE id=? AND recipient=?",
-                (message_id, user.strip().lower()),
+                ((mid, normalize_account(user)) for mid in ids),
             )
+
+    def mailbox_listing(self, user):
+        with self.transaction() as db:
+            return list(db.execute("SELECT id,length(raw) AS size FROM messages WHERE recipient=? AND deleted=0 ORDER BY id",
+                                   (normalize_account(user),)))
+
+    def message_raw(self, user, mid):
+        with self.transaction() as db:
+            row = db.execute("SELECT raw FROM messages WHERE recipient=? AND id=?", (normalize_account(user), mid)).fetchone()
+        return row["raw"] if row else None
+
+    def list_read(self, user):
+        with self.transaction() as db:
+            rows = db.execute("SELECT r.message_id FROM message_reads r JOIN messages m "
+                              "ON m.id=r.message_id AND m.recipient=r.owner WHERE r.owner=? AND m.deleted=0",
+                              (normalize_account(user),))
+            return [f"lab3-{row['message_id']}" for row in rows]
+
+    def set_read(self, user, uid, read=True):
+        owner, mid = normalize_account(user), message_id(uid)
+        with self.transaction() as db:
+            if read:
+                db.execute("INSERT OR IGNORE INTO message_reads(owner,message_id) "
+                           "SELECT recipient,id FROM messages WHERE id=? AND recipient=? AND deleted=0", (mid, owner))
+            else:
+                db.execute("DELETE FROM message_reads WHERE owner=? AND message_id=?", (owner, mid))
+
+    def list_drafts(self, user):
+        with self.transaction() as db:
+            rows = db.execute('SELECT id,recipient AS "to",subject,body,links,updated_at FROM drafts '
+                              "WHERE owner=? ORDER BY updated_at DESC,id", (normalize_account(user),))
+            return [dict(row) for row in rows]
+
+    def save_draft(self, user, draft):
+        key, to, subject, body, links = draft_values(draft)
+        stamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        with self.transaction() as db:
+            db.execute("INSERT INTO drafts(owner,id,recipient,subject,body,links,updated_at) VALUES(?,?,?,?,?,?,?) "
+                       "ON CONFLICT(owner,id) DO UPDATE SET recipient=excluded.recipient,subject=excluded.subject,"
+                       "body=excluded.body,links=excluded.links,updated_at=excluded.updated_at",
+                       (normalize_account(user), key, to, subject, body, links, stamp))
+        return {"id": key, "to": to, "subject": subject, "body": body, "links": links, "updated_at": stamp}
+
+    def delete_draft(self, user, key):
+        with self.transaction() as db:
+            result = db.execute("DELETE FROM drafts WHERE owner=? AND id=?", (normalize_account(user), draft_id(key)))
+            return result.rowcount > 0
 
 
 def now() -> str:
@@ -252,7 +340,10 @@ class SMTPHandler(socketserver.StreamRequestHandler):
                         raise ValueError("unsupported auth")
                     authenticated = normalize_account(user) if store.authenticate(user, password) else None
                     _send_line(self.wfile, "235 2.7.0 Authentication successful" if authenticated else "535 5.7.8 Authentication failed")
-                except Exception:
+                except (MailStorageError, sqlite3.Error):
+                    authenticated = None
+                    _send_line(self.wfile, "454 4.7.0 Authentication temporarily unavailable")
+                except (ValueError, UnicodeError):
                     authenticated = None
                     _send_line(self.wfile, "535 5.7.8 Authentication failed")
             elif verb == "MAIL" and argument.upper().startswith("FROM:"):
@@ -266,7 +357,11 @@ class SMTPHandler(socketserver.StreamRequestHandler):
                     _send_line(self.wfile, "503 5.5.1 Need MAIL FROM first")
                 else:
                     recipient = argument[3:].strip().split(">", 1)[0].lstrip("<").lower()
-                    exists = store.user_exists(recipient)
+                    try:
+                        exists = store.user_exists(recipient)
+                    except (MailStorageError, sqlite3.Error):
+                        _send_line(self.wfile, "451 4.3.0 Local storage temporarily unavailable")
+                        continue
                     local_domain = recipient.rsplit("@", 1)[-1] in ("localhost", "yamail.local")
                     if not re.fullmatch(r"[^\s<>@]+@[^\s<>@]+", recipient):
                         _send_line(self.wfile, "550 5.1.3 Invalid recipient address")
@@ -310,10 +405,13 @@ class SMTPHandler(socketserver.StreamRequestHandler):
                     _send_line(self.wfile, "552 5.3.4 Message exceeds 10 MiB limit")
                     sender, recipients = None, []
                     continue
-                local = [recipient for recipient in recipients if store.user_exists(recipient)]
-                external = [recipient for recipient in recipients if recipient not in local]
                 raw = b"".join(chunks)
                 try:
+                    try:
+                        local = [recipient for recipient in recipients if store.user_exists(recipient)]
+                    except (MailStorageError, sqlite3.Error):
+                        raise RelayError(451, "4.3.0 Local storage temporarily unavailable") from None
+                    external = [recipient for recipient in recipients if recipient not in local]
                     # Complete external submission before creating local copies,
                     # so a relay failure cannot leave a successful local send.
                     refused = {}
@@ -325,7 +423,7 @@ class SMTPHandler(socketserver.StreamRequestHandler):
                     relayed = len(external) - len(refused)
                     try:
                         accepted = store.deliver(sender, local, raw) if local else 0
-                    except (sqlite3.Error, LookupError, ValueError):
+                    except (MailStorageError, sqlite3.Error, LookupError, ValueError):
                         if not relayed:
                             raise RelayError(451, "4.3.0 Local delivery failed") from None
                         accepted = 0
@@ -383,20 +481,26 @@ class POP3Handler(socketserver.StreamRequestHandler):
                 if logged_in:
                     _send_line(self.wfile, "-ERR Already authenticated")
                     continue
-                if user and store.authenticate(user, argument):
+                try:
+                    verified = user and store.authenticate(user, argument)
+                    if verified:
+                        mailbox = store.mailbox_listing(user)
+                except (MailStorageError, sqlite3.Error):
+                    _send_line(self.wfile, "-ERR Local storage temporarily unavailable")
+                    continue
+                if verified:
                     logged_in = True
-                    mailbox = store.messages(user)
                     _send_line(self.wfile, "+OK Mailbox locked and ready")
                 else:
                     _send_line(self.wfile, "-ERR Authentication failed")
             elif verb == "STAT" and logged_in:
                 rows = [r for r in mailbox if r["id"] not in marked]
-                _send_line(self.wfile, f"+OK {len(rows)} {sum(len(r['raw']) for r in rows)}")
+                _send_line(self.wfile, f"+OK {len(rows)} {sum(r['size'] for r in rows)}")
             elif verb in ("LIST", "UIDL") and logged_in:
                 if argument:
                     try:
                         row = message_at(argument)
-                        value = len(row['raw']) if verb == "LIST" else f"lab3-{row['id']}"
+                        value = row['size'] if verb == "LIST" else f"lab3-{row['id']}"
                         _send_line(self.wfile, f"+OK {argument} {value}")
                     except (ValueError, IndexError):
                         _send_line(self.wfile, "-ERR No such message")
@@ -405,20 +509,25 @@ class POP3Handler(socketserver.StreamRequestHandler):
                     for i, row in enumerate(mailbox, 1):
                         if row['id'] in marked:
                             continue
-                        value = len(row['raw']) if verb == "LIST" else f"lab3-{row['id']}"
+                        value = row['size'] if verb == "LIST" else f"lab3-{row['id']}"
                         _send_line(self.wfile, f"{i} {value}")
                     _send_line(self.wfile, ".")
             elif verb == "RETR" and logged_in:
                 try:
                     row = message_at(argument)
-                    _send_line(self.wfile, f"+OK {len(row['raw'])} octets")
-                    for data_line in row["raw"].splitlines():
+                    raw = store.message_raw(user, row["id"])
+                    if raw is None:
+                        raise IndexError()
+                    _send_line(self.wfile, f"+OK {len(raw)} octets")
+                    for data_line in raw.splitlines():
                         if data_line.startswith(b"."):
                             data_line = b"." + data_line
                         self.wfile.write(data_line + b"\r\n")
                     _send_line(self.wfile, ".")
                 except (ValueError, IndexError):
                     _send_line(self.wfile, "-ERR No such message")
+                except (MailStorageError, sqlite3.Error):
+                    _send_line(self.wfile, "-ERR Local storage temporarily unavailable")
             elif verb == "DELE" and logged_in:
                 try:
                     row = message_at(argument)
@@ -432,9 +541,12 @@ class POP3Handler(socketserver.StreamRequestHandler):
                 marked.clear()
                 _send_line(self.wfile, "+OK Deletion marks cleared")
             elif verb == "QUIT":
-                if logged_in and user:
-                    for mid in marked:
-                        store.mark_deleted(mid, user)
+                if logged_in and user and marked:
+                    try:
+                        store.mark_deleted_many(user, marked)
+                    except (MailStorageError, sqlite3.Error):
+                        _send_line(self.wfile, "-ERR Deletion could not be saved")
+                        return
                 _send_line(self.wfile, "+OK Bye")
                 return
             else:
@@ -523,19 +635,32 @@ def fetch_gmail(username: str, app_password: str, delete: bool = False) -> list[
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lab3 local SMTP/POP3 server and Gmail client")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database file")
+    parser.add_argument("--backend", choices=("sqlite", "mysql"), default=os.getenv("LAB3_MAIL_BACKEND", "sqlite"),
+                        help="Server database engine")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
     user = sub.add_parser("user"); user.add_argument("email"); user.add_argument("password")
     server = sub.add_parser("server"); server.add_argument("--smtp-port", type=int, default=2525); server.add_argument("--pop3-port", type=int, default=8110); server.add_argument("--account-port", type=int, default=8033)
     send = sub.add_parser("send"); send.add_argument("--from", dest="sender", required=True); send.add_argument("--to", action="append", required=True); send.add_argument("--subject", default="Lab3 test"); send.add_argument("--body", default="Hello from Lab3-Mail"); send.add_argument("--port", type=int, default=2525)
     fetch = sub.add_parser("fetch"); fetch.add_argument("--user", default="student@localhost"); fetch.add_argument("--password", default="student"); fetch.add_argument("--port", type=int, default=8110)
-    args = parser.parse_args(argv); store = MailStore(args.db)
+    args = parser.parse_args(argv)
+    store = None
+    if args.command in ("init-db", "user", "server"):
+        try:
+            if args.backend == "mysql":
+                from mysql_store import MySQLMailStore
+                store = MySQLMailStore()
+            else:
+                store = MailStore(args.db)
+        except (MailStorageError, RuntimeError, sqlite3.Error):
+            print(f"Could not initialize {args.backend} storage. Check database settings and dependencies.", file=sys.stderr)
+            return 1
     if args.command == "user": store.add_user(args.email, args.password); print(f"saved user {args.email}")
     elif args.command == "send": send_local("127.0.0.1", args.port, args.sender, args.to, args.subject, args.body); print("message sent")
     elif args.command == "fetch":
         for i, message in enumerate(fetch_local("127.0.0.1", args.port, args.user, args.password), 1): print(f"--- message {i} ---\n{message.decode('utf-8', 'replace')}")
     elif args.command == "server":
-        servers = MailServers(store, smtp_port=args.smtp_port, pop3_port=args.pop3_port, account_port=args.account_port); servers.start(); print(f"SMTP listening on 127.0.0.1:{args.smtp_port}; POP3 on 127.0.0.1:{args.pop3_port}; account API on 127.0.0.1:{args.account_port}")
+        servers = MailServers(store, smtp_port=args.smtp_port, pop3_port=args.pop3_port, account_port=args.account_port); servers.start(); print(f"SMTP listening on 127.0.0.1:{args.smtp_port}; POP3 on 127.0.0.1:{args.pop3_port}; account API on 127.0.0.1:{args.account_port}; storage: {args.backend}")
         try:
             threading.Event().wait()
         except KeyboardInterrupt:
@@ -544,4 +669,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Repository modules must share our exception types even in script mode.
+    sys.modules.setdefault("mail_service", sys.modules[__name__])
     raise SystemExit(main())

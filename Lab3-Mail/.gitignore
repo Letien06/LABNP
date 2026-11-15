@@ -2,3 +2,13 @@
 /logs/
 /mails/
 /.idea/
+/.local/
+/.qa/*
+!/.qa/feature_test.py
+*.db
+*.db-*
+*.sqlite*
+*.log
+__pycache__/
+target/
+.qa-client-cp.txt

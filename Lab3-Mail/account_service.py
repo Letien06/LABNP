@@ -42,7 +42,7 @@ class AccountHandler(BaseHTTPRequestHandler):
             self.reply(404, {"ok": False, "error": "Không tìm thấy chức năng."})
 
     def do_POST(self):
-        if self.path not in ("/register", "/relay"):
+        if self.path not in ("/register", "/relay", "/mailbox/state"):
             self.reply(404, {"ok": False, "error": "Không tìm thấy chức năng."})
             return
         if self.path == "/relay":
@@ -53,7 +53,8 @@ class AccountHandler(BaseHTTPRequestHandler):
                 return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 16384:
+            limit = 512 * 1024 if self.path == "/mailbox/state" else 16384
+            if length <= 0 or length > limit:
                 raise ValueError("Dữ liệu yêu cầu không hợp lệ hoặc quá lớn.")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(payload, dict):
@@ -61,9 +62,11 @@ class AccountHandler(BaseHTTPRequestHandler):
             if self.path == "/register":
                 profile = self.server.store.register_user(payload.get("name"), payload.get("email"), payload.get("password"))
                 self.reply(201, {"ok": True, **profile})
-            else:
+            elif self.path == "/relay":
                 status = self.server.relay.configure(payload.get("user"), payload.get("password"))
                 self.reply(200, {"ok": True, **status})
+            else:
+                self.mailbox_state(payload)
         except (UnicodeError, json.JSONDecodeError):
             self.reply(400, {"ok": False, "error": "Dữ liệu yêu cầu phải là JSON mã hóa UTF-8 hợp lệ."})
         except ValueError as exc:
@@ -71,3 +74,29 @@ class AccountHandler(BaseHTTPRequestHandler):
                        {"ok": False, "error": str(exc)})
         except Exception:
             self.reply(500, {"ok": False, "error": "Không thể xử lý yêu cầu lúc này."})
+
+    def mailbox_state(self, payload):
+        store = self.server.store
+        user, password = payload.get("user"), payload.get("password")
+        if (not isinstance(user, str) or not isinstance(password, str)
+                or len(user) > 320 or len(password) > 1024 or not store.authenticate(user, password)):
+            self.reply(403, {"ok": False, "error": "Đăng nhập Ya-mail không hợp lệ."})
+            return
+        action = payload.get("action")
+        result = {}
+        if action == "list_read":
+            result["uids"] = store.list_read(user)
+        elif action == "set_read":
+            read = payload.get("read")
+            if not isinstance(read, bool):
+                raise ValueError("Trạng thái đọc không hợp lệ.")
+            store.set_read(user, payload.get("uid"), read)
+        elif action == "list_drafts":
+            result["drafts"] = store.list_drafts(user)
+        elif action == "save_draft":
+            result["draft"] = store.save_draft(user, payload)
+        elif action == "delete_draft":
+            result["deleted"] = store.delete_draft(user, payload.get("id"))
+        else:
+            raise ValueError("Thao tác hộp thư không hợp lệ.")
+        self.reply(200, {"ok": True, **result})
