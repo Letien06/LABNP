@@ -1,6 +1,7 @@
 package com.ronial.browser;
 
 import com.ronial.browser.model.HttpRequestData;
+import com.ronial.browser.service.AddressBar;
 import com.ronial.browser.service.BrowsingHistory;
 import com.ronial.browser.service.HttpService;
 import com.ronial.browser.view.DownloadsWindow;
@@ -274,15 +275,24 @@ public final class ClientController implements Initializable, AutoCloseable {
     public BrowserViewModel getViewModel() { return viewModel; }
     public void newTab() { openNewPage(homeUrl()); }
     public void home() { navigate(homeUrl()); }
-    public void loadPage() { navigate(textField.getText()); }
+    public void getPage() { navigate(textField.getText()); }
+
+    public void loadPage() {
+        try {
+            navigate(AddressBar.resolve(textField.getText()));
+        } catch (IllegalArgumentException ex) { viewModel.setStatus(ex.getMessage()); }
+    }
 
     private void navigate(String input) {
         try {
-            String address = HttpRequestData.parseAddress(input).toString();
-            selectPage();
-            viewModel.navigationStarted();
-            activeEngine().load(address);
+            navigate(HttpRequestData.parseAddress(input));
         } catch (IllegalArgumentException ex) { viewModel.setStatus(ex.getMessage()); }
+    }
+
+    private void navigate(URI address) {
+        selectPage();
+        viewModel.navigationStarted();
+        activeEngine().load(address.toASCIIString());
     }
 
     public void refreshPage() {

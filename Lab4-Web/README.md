@@ -2,7 +2,7 @@
 
 Client, server và bộ kiểm thử đều viết bằng **Java**. Không cần Python.
 
-- **Client JavaFX:** nhiều tab WebView độc lập, GET, HEAD, soạn POST, lịch sử lưu trên máy và quản lý tải xuống.
+- **Client JavaFX:** nhiều tab WebView độc lập, tìm kiếm Google từ thanh địa chỉ, GET, HEAD, soạn POST, lịch sử lưu trên máy và quản lý tải xuống.
 - **HTTP service:** `java.net.http.HttpClient.sendAsync`, timeout, hủy request, tải file theo luồng và giữ file đã tồn tại.
 - **Server Java:** `jdk.httpserver`, cung cấp HTML, JSON và upload/download file qua kết nối HTTP thật.
 
@@ -52,7 +52,7 @@ Mở terminal khác:
 .\scripts\run-client.ps1 -HomeUrl http://127.0.0.1:8080/
 ```
 
-1. Nhập URL rồi nhấn Enter hoặc **GET** để duyệt trang. Hỗ trợ HTTP/HTTPS; địa chỉ không có scheme được thêm `http://`.
+1. Nhấn Ctrl+L rồi nhập từ khóa như `lập trình mạng Java` và nhấn Enter để xem kết quả Google ngay trong tab đang mở. Có thể nhập URL hoặc tên miền như `wikipedia.org` để mở trang trực tiếp. Tên miền thường dùng HTTPS, còn địa chỉ IP, `localhost` và địa chỉ có cổng dùng HTTP nếu bạn chưa ghi scheme. **GET** gửi yêu cầu đến địa chỉ đã nhập. Tìm kiếm Google cần kết nối Internet.
 2. **HEAD:** xem status và header thật trong tab **HTTP response**.
 3. **POST:** mở cửa sổ soạn request. Nhập URL, header theo dạng `Tên: giá trị` mỗi dòng và nội dung body. Ví dụ:
 
@@ -80,7 +80,7 @@ src/main/java/com/ronial/browser/
   view/                      RequestComposer, ResponsePane
   viewmodel/                 BrowserViewModel: trạng thái, hủy và điều phối tác vụ
   model/                     HttpRequestData, HttpResponseData, DownloadResult
-  service/                   HttpService: HTTP bất đồng bộ và download
+  service/                   AddressBar, BrowsingHistory, HttpService
   server/                    LabHttpServer, ServerMain, JSON codec nội bộ
 src/main/resources/          FXML và CSS
 tests/                       Kiểm thử HTTP/service/JavaFX bằng Java

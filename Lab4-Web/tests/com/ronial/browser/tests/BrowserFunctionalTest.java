@@ -2,6 +2,7 @@ package com.ronial.browser.tests;
 
 import com.ronial.browser.ClientController;
 import com.ronial.browser.server.LabHttpServer;
+import com.ronial.browser.service.AddressBar;
 import com.sun.net.httpserver.HttpServer;
 import java.awt.image.BufferedImage;
 import java.net.InetSocketAddress;
@@ -12,6 +13,7 @@ import java.util.concurrent.*;
 import javax.imageio.ImageIO;
 import javafx.application.*;
 import javafx.concurrent.Worker;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.*;
 import javafx.scene.control.*;
@@ -142,6 +144,7 @@ public final class BrowserFunctionalTest extends Application {
         fx(() -> { controller.zoomOut(); return null; });
         check(fx(() -> browser.getZoom()) == 1, "Zoom out");
         browserNavigation();
+        searchFromAddressBar();
         linkDownloads();
         System.out.println("BrowserFunctionalTest: PASS (" + checks + " checks)");
     }
@@ -226,6 +229,35 @@ public final class BrowserFunctionalTest extends Application {
             return null;
         });
         check(fx(() -> tabs.getTabs().size() == 2 && tabs.getSelectionModel().getSelectedItem() == first), "Closing a tab restores the remaining tab");
+    }
+
+    private void searchFromAddressBar() throws Exception {
+        check(AddressBar.resolve("Java").toString().equals("https://www.google.com/search?q=Java"),
+                "A single keyword searches Google by default");
+        check(AddressBar.resolve("example.com/docs").toString().equals("https://example.com/docs"),
+                "A bare domain opens as an HTTPS address");
+
+        System.setProperty("lab4.searchUrl", base + "/api/echo?source=address-bar");
+        String keywords = "lập trình mạng C++ & Java #1";
+        fx(() -> {
+            address.setText(keywords);
+            address.fireEvent(new ActionEvent());
+            return null;
+        });
+        until(() -> browser.getEngine().getLocation().startsWith(base + "/api/echo")
+                && browser.getEngine().getLoadWorker().getState() == Worker.State.SUCCEEDED);
+        check(fx(() -> pageText().contains(keywords) && pageText().contains("address-bar")),
+                "Enter sends UTF-8 keywords and reserved characters intact to the search provider");
+        System.clearProperty("lab4.searchUrl");
+
+        fx(() -> {
+            address.setText(base.substring("http://".length()) + "/index.html");
+            address.fireEvent(new ActionEvent());
+            return null;
+        });
+        awaitPage(browser, base + "/index.html");
+        check(fx(() -> pageText().contains("Lab4 Web services")),
+                "Enter opens a bare local address with a port");
     }
 
     private void linkDownloads() throws Exception {

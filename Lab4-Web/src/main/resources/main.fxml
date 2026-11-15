@@ -27,7 +27,10 @@
     <Button fx:id="stopPageButton" onAction="#stopPage" text="×" styleClass="icon-button" accessibleText="Stop loading">
       <tooltip><Tooltip text="Stop loading this page (Esc)"/></tooltip>
     </Button>
-    <TextField fx:id="textField" onAction="#loadPage" promptText="Enter a web address" styleClass="address-field" HBox.hgrow="ALWAYS"/>
+    <TextField fx:id="textField" onAction="#loadPage" promptText="Search Google or enter a web address"
+               accessibleText="Search or enter a web address" styleClass="address-field" HBox.hgrow="ALWAYS">
+      <tooltip><Tooltip text="Type a search term or address and press Enter (Ctrl+L to focus)"/></tooltip>
+    </TextField>
     <Button onAction="#displayHistory" text="History" styleClass="toolbar-button"/>
     <Button onAction="#downloadVideo" text="Save URL" styleClass="toolbar-button">
       <tooltip><Tooltip text="Download the file at the address in the bar"/></tooltip>
@@ -36,7 +39,7 @@
   </HBox>
   <HBox styleClass="action-bar" alignment="CENTER_LEFT" spacing="8">
     <Label text="HTTP actions" styleClass="section-label"/>
-    <Button onAction="#loadPage" text="GET" styleClass="method-get"/>
+    <Button onAction="#getPage" text="GET" styleClass="method-get"/>
     <Button onAction="#postRequest" text="POST" styleClass="method-post"/>
     <Button onAction="#headRequest" text="HEAD" styleClass="method-head"/>
     <Button fx:id="cancelRequest" id="cancelRequest" onAction="#cancelRequest" text="Cancel request" styleClass="toolbar-button"/>
