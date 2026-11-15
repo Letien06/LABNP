@@ -5,6 +5,7 @@ module com.ronial.browser {
     requires javafx.graphics;
     requires javafx.base;
     requires java.net.http;
+    requires java.desktop;
     requires jdk.httpserver;
 
     opens com.ronial.browser to javafx.fxml;

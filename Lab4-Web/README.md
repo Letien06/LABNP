@@ -2,7 +2,7 @@
 
 Client, server và bộ kiểm thử đều viết bằng **Java**. Không cần Python.
 
-- **Client JavaFX:** duyệt trang bằng WebView, GET, HEAD, soạn POST, history, back/forward, download và zoom.
+- **Client JavaFX:** nhiều tab WebView độc lập, GET, HEAD, soạn POST, lịch sử lưu trên máy và quản lý tải xuống.
 - **HTTP service:** `java.net.http.HttpClient.sendAsync`, timeout, hủy request, tải file theo luồng và giữ file đã tồn tại.
 - **Server Java:** `jdk.httpserver`, cung cấp HTML, JSON và upload/download file qua kết nối HTTP thật.
 
@@ -40,8 +40,9 @@ Server và kiểm thử HTTP dùng thư viện có sẵn trong JDK, không cần
 | `/api/echo` | POST | Nhận JSON, form hoặc plain text; trả lại payload và header |
 | `/api/upload?name=demo.bin` | POST | Lưu bytes, tối đa 2 MiB; trả đường dẫn tải |
 | `/download/<name>` | GET/HEAD | Tải file từ thư mục upload hoặc `public` |
+| `/files/sample.pdf`, `/files/sample.mp3`, `/files/sample.mp4` | GET/HEAD | Mở các tệp mẫu, hỗ trợ yêu cầu lấy một đoạn bằng `Range` |
 
-Đặt file PDF/MP3/MP4 hoặc file demo vào `public` để tải qua `/download/<tên-file>`. Server trả Content-Type, Content-Length và Content-Disposition; HEAD không có body. Đường dẫn không hợp lệ, method sai hoặc route thiếu trả lỗi HTTP tương ứng.
+Trang chủ có sẵn PDF, MP3 và MP4 mẫu. Các nút **Download PDF**, **Download MP3** và **Download MP4** tải tệp trực tiếp. Server trả đúng Content-Type và Content-Length theo loại tệp. HEAD không có body. Mức hỗ trợ xem hoặc phát tại chỗ tùy WebView và codec của máy.
 
 ## Chạy browser
 
@@ -66,9 +67,10 @@ Mở terminal khác:
 
    Bấm **Send POST** hoặc Ctrl+Enter. Đổi Content-Type để gửi `text/plain` hoặc `application/x-www-form-urlencoded`. Body được gửi theo nội dung bạn nhập, không dùng payload cố định. Các header do HTTP client quản lý như Host/Content-Length không được nhập thủ công.
 4. Tab **HTTP response** trình bày method, status, thời gian, URL, header và body bằng điều khiển JavaFX. Nội dung response không được ghép thành HTML để thực thi.
-5. **Cancel request** hủy tác vụ đang chạy; điều hướng mới không bị kết quả request cũ ghi đè.
-6. **Downloads:** đặt URL file vào thanh địa chỉ, bấm nút và chọn thư mục. File tải được ghi qua file tạm; file trùng tên được đổi tên để giữ bản đã có.
-7. Dùng **History**, back/forward và zoom để thao tác lịch sử phiên duyệt. History hiện thuộc phiên chạy WebView.
+5. **Reload** (F5) tải lại trang đang mở. **Stop** (Esc) ngắt tải trang. Dùng **Cancel request** để hủy lệnh HEAD hoặc POST.
+6. Bấm liên kết tải xuống trên trang demo để lưu vào thư mục `Downloads` của tài khoản Windows. Cửa sổ **Downloads** hiển thị tiến độ, cho phép hủy hoặc mở thư mục chứa tệp đã tải. **Save URL** dùng địa chỉ trên thanh URL và cho chọn thư mục lưu. Tên trùng được đổi để giữ tệp đã có.
+7. Dùng **New tab** hoặc Ctrl+T để mở tab duyệt. Mỗi tab giữ trang, Back/Forward và zoom riêng. Ctrl+W đóng tab đang chọn, Ctrl+L đưa tiêu điểm đến thanh địa chỉ.
+8. **History** hiển thị tối đa 500 lượt mở trang HTTP/HTTPS và lưu trong `%USERPROFILE%\.ronial-browser\history.tsv`. Bấm đúp hoặc chọn **Mở trang** để mở lại. Có thể xóa lịch sử từ chính cửa sổ này.
 
 ## Kiến trúc
 

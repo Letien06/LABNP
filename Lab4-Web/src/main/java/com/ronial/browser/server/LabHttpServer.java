@@ -9,10 +9,32 @@ import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.regex.Pattern;
 
 /** HTTP services for Lab 4, running entirely on JDK 17. */
 public final class LabHttpServer implements AutoCloseable {
     public static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
+    private static final Map<String, String> MEDIA_TYPES = Map.of("pdf", "application/pdf", "mp3", "audio/mpeg", "mp4", "video/mp4");
+    private static final Pattern SINGLE_BYTE_RANGE = Pattern.compile("bytes=([0-9]*)-([0-9]*)", Pattern.CASE_INSENSITIVE);
+    private static final String HOME_PAGE = """
+            <!doctype html>
+            <html lang="en"><head><meta charset="utf-8"><title>Lab4 Web</title></head>
+            <body>
+            <h1>Lab4 Web services</h1>
+            <ul>
+              <li><a href="/api/time">JSON time service</a></li>
+              <li><a href="/api/echo?message=hello">JSON echo service</a></li>
+              <li><a href="/download/sample.txt" download>Download sample</a></li>
+            </ul>
+            <h2>Media samples</h2>
+            <ul>
+              <li><a href="/files/sample.pdf">Open sample PDF</a> · <a href="/download/sample.pdf" download>Download PDF</a></li>
+              <li><a href="/files/sample.mp3">Open sample MP3</a> · <a href="/download/sample.mp3" download>Download MP3</a></li>
+              <li><a href="/files/sample.mp4">Open sample MP4</a> · <a href="/download/sample.mp4" download>Download MP4</a></li>
+            </ul>
+            <p>Use the client to send GET, HEAD and POST requests.</p>
+            </body></html>
+            """;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newFixedThreadPool(8);
     private final Path publicDirectory, uploadDirectory;
@@ -38,13 +60,14 @@ public final class LabHttpServer implements AutoCloseable {
     private void route(HttpExchange x) throws IOException {
         String path = x.getRequestURI().getPath(), method = x.getRequestMethod();
         boolean download = path.startsWith("/download/");
-        boolean known = Set.of("/", "/index.html", "/api/time", "/api/echo", "/api/upload").contains(path) || download;
+        boolean inline = path.startsWith("/files/");
+        boolean known = Set.of("/", "/index.html", "/api/time", "/api/echo", "/api/upload").contains(path) || download || inline;
         if (!known) { json(x, 404, Map.of("error", "route not found")); return; }
         String allow = path.equals("/api/upload") ? "POST" : path.equals("/api/echo") ? "GET, HEAD, POST" : "GET, HEAD";
         if (!Arrays.asList(allow.split(", ")).contains(method)) { x.getResponseHeaders().set("Allow", allow); json(x, 405, Map.of("error", "method not allowed")); return; }
         Map<String, List<String>> query = query(x.getRequestURI().getRawQuery());
         if (path.equals("/") || path.equals("/index.html")) {
-            send(x, 200, "text/html; charset=utf-8", ("<!doctype html><html><head><meta charset='utf-8'><title>Lab4 Web</title></head><body><h1>Lab4 Web services</h1><ul><li><a href='/api/time'>JSON time service</a></li><li><a href='/api/echo?message=hello'>JSON echo service</a></li><li><a href='/download/sample.txt'>Download sample</a></li></ul><p>Use the client to send GET, HEAD and POST requests.</p></body></html>").getBytes(StandardCharsets.UTF_8)); return;
+            send(x, 200, "text/html; charset=utf-8", HOME_PAGE.getBytes(StandardCharsets.UTF_8)); return;
         }
         if (path.equals("/api/time")) { json(x, 200, Map.of("service", "time", "utc", Instant.now().toString())); return; }
         if (path.equals("/api/echo")) {
@@ -67,16 +90,75 @@ public final class LabHttpServer implements AutoCloseable {
             String location = "/download/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20"); x.getResponseHeaders().set("Location", location);
             json(x, 201, Map.of("service", "upload", "name", name, "bytes", bytes.length, "download", location)); return;
         }
-        String name = path.substring("/download/".length()); validateName(name);
-        Path file = uploadDirectory.resolve(name);
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) file = publicDirectory.resolve(name);
+        String name = path.substring((download ? "/download/" : "/files/").length());
+        validateName(name);
+        int extensionIndex = name.lastIndexOf('.');
+        String extension = extensionIndex < 0 ? "" : name.substring(extensionIndex + 1).toLowerCase(Locale.ROOT);
+        String type = MEDIA_TYPES.get(extension);
+        if (inline && (type == null || !name.equals("sample." + extension))) {
+            json(x, 404, Map.of("error", "file not found"));
+            return;
+        }
+        Path file = download ? uploadDirectory.resolve(name) : publicDirectory.resolve(name);
+        if (download && !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) file = publicDirectory.resolve(name);
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) { json(x, 404, Map.of("error", "file not found")); return; }
-        String type = Files.probeContentType(file); if (type == null) type = "application/octet-stream";
+        if (type == null) type = Files.probeContentType(file);
+        if (type == null) type = "application/octet-stream";
         String fallback = name.replaceAll("[^A-Za-z0-9._-]", "_");
-        x.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + fallback + "\"; filename*=UTF-8''" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20"));
-        long length = Files.size(file); headers(x, type, length);
-        x.sendResponseHeaders(200, method.equals("HEAD") || length == 0 ? -1 : length);
-        if (!method.equals("HEAD") && length != 0) try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) { input.transferTo(x.getResponseBody()); }
+        x.getResponseHeaders().set("Content-Disposition", (download ? "attachment" : "inline") + "; filename=\"" + fallback + "\"; filename*=UTF-8''" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20"));
+        serveFile(x, file, type);
+    }
+
+    private static void serveFile(HttpExchange x, Path file, String type) throws IOException {
+        try (var input = Files.newByteChannel(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            long size = input.size();
+            long start = 0;
+            long length = size;
+            int status = 200;
+            boolean head = x.getRequestMethod().equals("HEAD");
+            x.getResponseHeaders().set("Accept-Ranges", "bytes");
+            String range = x.getRequestHeaders().getFirst("Range");
+            if (!head && range != null && x.getRequestHeaders().getFirst("If-Range") == null) {
+                var match = SINGLE_BYTE_RANGE.matcher(range.trim());
+                if (match.matches() && (match.start(1) != match.end(1) || match.start(2) != match.end(2))) {
+                    String first = match.group(1);
+                    String last = match.group(2);
+                    long end = last.isEmpty() || first.isEmpty() ? size - 1 : Math.min(parseRangeNumber(last), size - 1);
+                    start = first.isEmpty() ? size - Math.min(parseRangeNumber(last), size) : parseRangeNumber(first);
+                    if (start > end) {
+                        x.getResponseHeaders().set("Content-Range", "bytes */" + size);
+                        x.getResponseHeaders().remove("Content-Disposition");
+                        headers(x, type, 0);
+                        x.sendResponseHeaders(416, -1);
+                        return;
+                    }
+                    status = 206;
+                    length = end - start + 1;
+                    x.getResponseHeaders().set("Content-Range", "bytes " + start + "-" + end + "/" + size);
+                }
+            }
+            headers(x, type, length);
+            x.sendResponseHeaders(status, head || length == 0 ? -1 : length);
+            if (!head && length > 0) {
+                input.position(start);
+                ByteBuffer buffer = ByteBuffer.allocate(8192);
+                OutputStream body = x.getResponseBody();
+                while (length > 0) {
+                    buffer.clear();
+                    buffer.limit((int) Math.min(buffer.capacity(), length));
+                    int count = input.read(buffer);
+                    if (count < 0) break;
+                    body.write(buffer.array(), 0, count);
+                    length -= count;
+                }
+            }
+        }
+    }
+
+    private static long parseRangeNumber(String value) {
+        if (value.isEmpty()) return 0;
+        try { return Long.parseLong(value); }
+        catch (NumberFormatException e) { return Long.MAX_VALUE; }
     }
     private static void validateName(String name) { if (name.isBlank() || name.equals(".") || name.equals("..") || name.length() > 180 || name.chars().anyMatch(c -> c < 32 || c == 127 || "/\\:<>\"|?*".indexOf(c) >= 0) || name.endsWith(".") || name.endsWith(" ")) throw new IllegalArgumentException("unsafe filename"); }
     private static Map<String, List<String>> query(String raw) {
@@ -86,7 +168,15 @@ public final class LabHttpServer implements AutoCloseable {
     }
     private static byte[] readBody(HttpExchange x) throws IOException {
         String length = x.getRequestHeaders().getFirst("Content-Length");
-        if (length != null && Long.parseLong(length) > MAX_BODY_BYTES) throw new TooLarge();
+        long declared = length == null ? -1 : Long.parseLong(length);
+        if (declared > MAX_BODY_BYTES) {
+            x.getResponseHeaders().set("Connection", "close");
+            // Consume small overruns so Windows does not reset the response while the client is still writing.
+            if (declared <= MAX_BODY_BYTES + 64 * 1024) {
+                x.getRequestBody().readNBytes((int) declared + 1);
+            }
+            throw new TooLarge();
+        }
         byte[] bytes = x.getRequestBody().readNBytes(MAX_BODY_BYTES + 1); if (bytes.length > MAX_BODY_BYTES) throw new TooLarge(); return bytes;
     }
     private static void headers(HttpExchange x, String type, long length) { x.getResponseHeaders().set("Content-Type", type); x.getResponseHeaders().set("Content-Length", Long.toString(length)); x.getResponseHeaders().set("Cache-Control", "no-store"); }

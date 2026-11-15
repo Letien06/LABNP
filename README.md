@@ -7,7 +7,7 @@ Mã nguồn 5 bài lab, gồm server, client có giao diện, hướng dẫn ch�
 | 1 | [Lab1-Chat](Lab1-Chat/) | Chat riêng TCP, phòng chung UDP multicast, thông báo LAN broadcast, gửi tệp, lịch sử và dashboard server |
 | 2 | [Lab2-FTP](Lab2-FTP/) | FTP server/client, giao diện hai khung, đăng nhập, upload/download và database audit |
 | 3 | [Lab3-Mail](Lab3-Mail/) | Ya-mail, SMTP + POP3, MySQL/SQLite, thư nháp, trạng thái đọc và Gmail relay |
-| 4 | [Lab4-Web](Lab4-Web/) | JavaFX + server Java, Model/Service/ViewModel, soạn POST tùy nhập, GET/HEAD, history và download |
+| 4 | [Lab4-Web](Lab4-Web/) | JavaFX + server Java, GET/HEAD/POST, tab độc lập, lịch sử lưu trên máy và tải PDF/MP3/MP4 trực tiếp |
 | 5 | [Lab5-RMI](Lab5-RMI/) | CRUD qua Java RMI, hai node A/B, lưu dữ liệu, hàng đợi đồng bộ và dashboard |
 
 ## Chuẩn bị

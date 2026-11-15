@@ -1,14 +1,15 @@
 # Kiểm thử bản Lab4 Java
 
-Ngày kiểm tra: **10/11/2026**. Client, server và bộ kiểm thử chạy bằng Java, không gọi Python.
+Ngày kiểm tra **15/11/2026**, trên Windows với JDK 17 và JavaFX 21.
 
 ## Các bộ kiểm tra
 
 | Bộ kiểm tra | Nội dung |
 |---|---|
-| `ServerIntegrationTest` | Kết nối HTTP thật; HTML, JSON time/echo, GET/HEAD/POST, Unicode, header tùy nhập, form/text/JSON, JSON sai, upload/download nhị phân khớp SHA-256, giới hạn upload, chặn đường dẫn ngoài thư mục, 404/405 |
-| `HttpServiceIntegrationTest` | `HttpClient.sendAsync`, body/header thực, HEAD, lỗi HTTP, tên file Unicode, tải song song cùng tên, giữ file đã có, hủy tải và dọn file tạm |
-| `BrowserFunctionalTest` | 18 kiểm tra trên JavaFX thực: GET, back/forward/history, HEAD, soạn POST JSON/form/text và header tùy nhập, giữ draft khi nhập sai, response native, lỗi 400 và phục hồi, chống gửi lặp, hủy request, kết quả cũ không ghi đè trang mới, download và zoom |
+| `ServerIntegrationTest` | HTTP thật, GET/HEAD/POST, HTML, JSON, form, Unicode, upload/download nhị phân, MIME và Range của tệp mẫu, giới hạn upload và xử lý lỗi |
+| `HttpServiceIntegrationTest` | HTTP bất đồng bộ, tên tệp Unicode, tải song song, tiến độ, giữ tệp đã có, hủy tải và dọn tệp tạm |
+| `BrowsingHistoryTest` | Đọc lại lịch sử từ tệp, giữ thứ tự, bỏ qua dòng hỏng và duy trì trạng thái sau khi xóa |
+| `BrowserFunctionalTest` | 30 kiểm tra JavaFX, gồm Reload đúng trang, Stop khi trang tải chậm, tab độc lập, mở lại trang từ History và bấm tải PDF/MP3/MP4 với nội dung khớp từng byte |
 
 ## Chạy lại
 
@@ -19,6 +20,6 @@ Ngày kiểm tra: **10/11/2026**. Client, server và bộ kiểm thử chạy b�
 
 Mỗi bộ kiểm thử dùng localhost và thư mục riêng dưới `target/test-runtime`. Assertion, lỗi biên dịch hay lỗi kết nối làm script thất bại; không chuyển thành kết quả PASS/SKIP.
 
-Ảnh chụp từ scene thật được tạo tại `target/browser-response.png` và `target/request-composer.png`. Kết quả build, ảnh và dữ liệu thử được loại khỏi Git.
+Ảnh chụp từ scene thật được tạo tại `target/browser-media.png`, `target/browser-response.png` và `target/request-composer.png`. Kết quả build, ảnh và dữ liệu thử được loại khỏi Git.
 
 Đây là kiểm thử cục bộ trên Windows. Chưa thay cho việc chạy thử mạng LAN, proxy hay mọi website công cộng. JavaFX WebView là bộ máy duyệt trang của ứng dụng; bài lab không triển khai toàn bộ chức năng của Chrome.

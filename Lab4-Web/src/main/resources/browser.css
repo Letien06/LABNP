@@ -17,3 +17,8 @@
 .method-head { -fx-background-color: #e3e7ff; -fx-text-fill: #3c4ca0; }
 .section-label { -fx-text-fill: #64748b; -fx-font-size: 11px; -fx-font-weight: bold; }
 .status-bar { -fx-padding: 5 14; -fx-background-color: #e9eef5; -fx-text-fill: #64748b; -fx-font-size: 11px; }
+.tab-pane > .tab-header-area { -fx-padding: 5 12 0 12; }
+.tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: #e9eef5; }
+.tab-pane > .tab-header-area .tab { -fx-background-color: #e0e8f3; -fx-background-radius: 8 8 0 0; }
+.tab-pane > .tab-header-area .tab:selected { -fx-background-color: white; }
+.tab-pane > .tab-header-area .tab-label { -fx-text-fill: #33455e; }

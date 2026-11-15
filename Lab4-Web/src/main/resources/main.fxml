@@ -8,15 +8,31 @@
     <Label text="Lab 4 • HTTP client" styleClass="subtitle"/>
   </HBox>
   <HBox styleClass="tab-strip" spacing="6">
-    <Button text="⌂ Home" onAction="#home" styleClass="tab-button"/><Region HBox.hgrow="ALWAYS"/><Label fx:id="connectionLabel" text="HTTP" styleClass="status-pill"/>
+    <Button text="⌂ Home" onAction="#home" styleClass="tab-button"/>
+    <Button fx:id="newTabButton" text="＋ New tab" onAction="#newTab" styleClass="tab-button">
+      <tooltip><Tooltip text="Open a tab (Ctrl+T)"/></tooltip>
+    </Button>
+    <Region HBox.hgrow="ALWAYS"/><Label fx:id="connectionLabel" text="No page" styleClass="status-pill"/>
   </HBox>
   <HBox styleClass="toolbar" alignment="CENTER" spacing="8">
-    <Button onAction="#back" text="‹" styleClass="icon-button"/>
-    <Button onAction="#forward" text="›" styleClass="icon-button"/>
-    <Button onAction="#refreshPage" text="↻" styleClass="icon-button"/>
-    <TextField fx:id="textField" onAction="#loadPage" promptText="Search or enter web address" styleClass="address-field" HBox.hgrow="ALWAYS"/>
+    <Button fx:id="backButton" onAction="#back" text="‹" styleClass="icon-button" accessibleText="Back">
+      <tooltip><Tooltip text="Back"/></tooltip>
+    </Button>
+    <Button fx:id="forwardButton" onAction="#forward" text="›" styleClass="icon-button" accessibleText="Forward">
+      <tooltip><Tooltip text="Forward"/></tooltip>
+    </Button>
+    <Button fx:id="reloadButton" onAction="#refreshPage" text="↻" styleClass="icon-button" accessibleText="Reload">
+      <tooltip><Tooltip text="Reload current page (F5)"/></tooltip>
+    </Button>
+    <Button fx:id="stopPageButton" onAction="#stopPage" text="×" styleClass="icon-button" accessibleText="Stop loading">
+      <tooltip><Tooltip text="Stop loading this page (Esc)"/></tooltip>
+    </Button>
+    <TextField fx:id="textField" onAction="#loadPage" promptText="Enter a web address" styleClass="address-field" HBox.hgrow="ALWAYS"/>
     <Button onAction="#displayHistory" text="History" styleClass="toolbar-button"/>
-    <Button onAction="#downloadVideo" text="Downloads" styleClass="toolbar-button"/>
+    <Button onAction="#downloadVideo" text="Save URL" styleClass="toolbar-button">
+      <tooltip><Tooltip text="Download the file at the address in the bar"/></tooltip>
+    </Button>
+    <Button onAction="#showDownloads" text="Downloads" styleClass="toolbar-button"/>
   </HBox>
   <HBox styleClass="action-bar" alignment="CENTER_LEFT" spacing="8">
     <Label text="HTTP actions" styleClass="section-label"/>
@@ -27,10 +43,10 @@
     <Region HBox.hgrow="ALWAYS"/>
     <Button onAction="#zoomOut" text="−" styleClass="icon-button"/><Label text="Zoom" styleClass="section-label"/><Button onAction="#zoomIn" text="＋" styleClass="icon-button"/>
   </HBox>
-  <TabPane fx:id="browserTabs" id="browserTabs" VBox.vgrow="ALWAYS" tabClosingPolicy="UNAVAILABLE">
+  <TabPane fx:id="browserTabs" id="browserTabs" VBox.vgrow="ALWAYS" tabClosingPolicy="ALL_TABS" tabMaxWidth="220">
     <tabs>
       <Tab fx:id="pageTab" text="Browser"><WebView fx:id="webView"/></Tab>
-      <Tab fx:id="responseTab" text="HTTP response"/>
+      <Tab fx:id="responseTab" text="HTTP response" closable="false"/>
     </tabs>
   </TabPane>
   <HBox styleClass="status-bar"><Label fx:id="statusLabel" text="Ready"/><Region HBox.hgrow="ALWAYS"/><Label text="JavaFX WebView"/></HBox>

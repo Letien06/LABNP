@@ -12,7 +12,7 @@ try {
         ForEach-Object { '.\' + $_.FullName.Substring($projectRoot.Length + 1) }
     & $tools.Javac --release 17 --add-modules jdk.httpserver -encoding UTF-8 -cp target\server-classes -d target\test-classes $sources
     if ($LASTEXITCODE -ne 0) { throw 'HTTP test compilation failed.' }
-    foreach ($suite in @('ServerIntegrationTest', 'HttpServiceIntegrationTest')) {
+    foreach ($suite in @('ServerIntegrationTest', 'HttpServiceIntegrationTest', 'BrowsingHistoryTest')) {
         & $tools.Java --add-modules jdk.httpserver -cp 'target\server-classes;target\test-classes' "com.ronial.browser.tests.$suite"
         if ($LASTEXITCODE -ne 0) { throw "$suite failed." }
     }

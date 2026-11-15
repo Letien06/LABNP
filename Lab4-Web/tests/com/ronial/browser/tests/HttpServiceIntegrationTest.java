@@ -37,7 +37,16 @@ public final class HttpServiceIntegrationTest {
             String name = "tài liệu.bin";
             Files.write(publicDir.resolve(name), binary);
             URI downloadUri = base.resolve("download/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20"));
-            DownloadResult downloaded = service.download(downloadUri, downloads).get(10, TimeUnit.SECONDS);
+            List<DownloadProgress> progress = new ArrayList<>();
+            Thread caller = Thread.currentThread();
+            DownloadResult downloaded = service.download(downloadUri, downloads, update -> {
+                check(Thread.currentThread() != caller, "download progress runs off the caller thread");
+                progress.add(update);
+            }).get(10, TimeUnit.SECONDS);
+            check(progress.get(0).bytesReceived() == 0, "initial download progress");
+            DownloadProgress lastProgress = progress.get(progress.size() - 1);
+            check(lastProgress.bytesReceived() == binary.length
+                    && lastProgress.totalBytes().orElseThrow() == binary.length, "complete progress for known length");
             check(downloaded.path().getFileName().toString().equals(name), "UTF-8 filename");
             check(downloaded.bytes() == binary.length && Arrays.equals(Files.readAllBytes(downloaded.path()), binary), "binary download integrity");
             Files.writeString(downloaded.path(), "existing-file");
@@ -73,10 +82,24 @@ public final class HttpServiceIntegrationTest {
                 try { release.await(10, TimeUnit.SECONDS); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
             }
         });
+        slow.createContext("/chunked.bin", exchange -> {
+            try (exchange) {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.getResponseBody().write(new byte[1024]);
+            }
+        });
         slow.start();
         try {
-            CompletableFuture<DownloadResult> task = service.download(URI.create("http://127.0.0.1:" + slow.getAddress().getPort() + "/slow.bin"), downloads);
+            URI slowBase = URI.create("http://127.0.0.1:" + slow.getAddress().getPort() + "/");
+            List<DownloadProgress> chunkedProgress = new ArrayList<>();
+            service.download(slowBase.resolve("chunked.bin"), downloads, chunkedProgress::add).get(5, TimeUnit.SECONDS);
+            check(chunkedProgress.get(chunkedProgress.size() - 1).bytesReceived() == 1024
+                    && chunkedProgress.stream().allMatch(update -> update.totalBytes().isEmpty()), "chunked progress with unknown length");
+            CountDownLatch downloadStarted = new CountDownLatch(1);
+            CompletableFuture<DownloadResult> task = service.download(slowBase.resolve("slow.bin"), downloads,
+                    progress -> downloadStarted.countDown());
             check(bodyStarted.await(5, TimeUnit.SECONDS), "slow body started");
+            check(downloadStarted.await(5, TimeUnit.SECONDS), "slow download created a temporary file");
             task.cancel(true); release.countDown();
             check(task.isCancelled(), "download cancelled");
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);

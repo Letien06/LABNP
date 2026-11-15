@@ -9,23 +9,33 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 import java.util.regex.*;
 
 public final class HttpService implements AutoCloseable {
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
+    private static final long DOWNLOAD_IDLE_NANOS = TimeUnit.SECONDS.toNanos(20);
+
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread thread = new Thread(r, "browser-http");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final ScheduledExecutorService downloadWatchdog = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "browser-download-timeout");
         thread.setDaemon(true);
         return thread;
     });
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL).executor(executor).build();
     private final Set<CompletableFuture<?>> outstanding = ConcurrentHashMap.newKeySet();
+    private final Object downloadPublication = new Object();
     private volatile boolean closed;
 
     public CompletableFuture<HttpResponseData> send(HttpRequestData data) {
         Objects.requireNonNull(data);
         if (closed) return CompletableFuture.failedFuture(new IllegalStateException("HTTP service is closed"));
-        HttpRequest.Builder builder = HttpRequest.newBuilder(data.uri()).timeout(Duration.ofSeconds(20));
+        HttpRequest.Builder builder = HttpRequest.newBuilder(data.uri()).timeout(REQUEST_TIMEOUT);
         data.headers().forEach(builder::header);
         builder.method(data.method(), data.body().isEmpty() ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(data.body(), StandardCharsets.UTF_8));
@@ -40,34 +50,27 @@ public final class HttpService implements AutoCloseable {
     }
 
     public CompletableFuture<DownloadResult> download(URI uri, Path directory) {
+        return download(uri, directory, progress -> { });
+    }
+
+    public CompletableFuture<DownloadResult> download(URI uri, Path directory, Consumer<DownloadProgress> onProgress) {
         HttpRequestData.validateUri(uri);
         Objects.requireNonNull(directory, "Download directory is required");
+        Objects.requireNonNull(onProgress, "Download progress callback is required");
         if (closed) return CompletableFuture.failedFuture(new IllegalStateException("HTTP service is closed"));
         DownloadFuture result = new DownloadFuture();
-        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).GET().build();
+        HttpRequest request = HttpRequest.newBuilder(uri).timeout(REQUEST_TIMEOUT).GET().build();
         CompletableFuture<HttpResponse<InputStream>> transport = client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
         result.whenComplete((value, error) -> {
-            if (result.isCancelled()) {
-                transport.cancel(true);
-                result.closeStream();
-            }
-        });
-        // ofInputStream completes at headers; keep the same deadline for the body.
-        CompletableFuture.delayedExecutor(20, TimeUnit.SECONDS).execute(() -> {
-            synchronized (result) {
-                if (!result.isDone()) {
-                    result.completeExceptionally(new HttpTimeoutException("Download timed out"));
-                    transport.cancel(true);
-                    result.closeStream();
-                }
-            }
+            if (result.isCancelled()) transport.cancel(true);
+            if (result.isCancelled() || error instanceof HttpTimeoutException) result.closeStream();
         });
         transport.whenComplete((response, failure) -> {
             if (failure != null) { result.completeExceptionally(failure); return; }
             result.stream = response.body();
             if (result.isDone()) { result.closeStream(); return; }
             try {
-                executor.execute(() -> save(response, directory, result));
+                executor.execute(() -> save(response, directory, result, onProgress));
             } catch (RejectedExecutionException error) {
                 result.closeStream();
                 result.completeExceptionally(error);
@@ -76,8 +79,11 @@ public final class HttpService implements AutoCloseable {
         return track(result);
     }
 
-    private void save(HttpResponse<InputStream> response, Path directory, DownloadFuture result) {
+    private void save(HttpResponse<InputStream> response, Path directory, DownloadFuture result,
+                      Consumer<DownloadProgress> onProgress) {
         Path temporary = null;
+        Exception failure = null;
+        ScheduledFuture<?> idleCheck = null;
         try (InputStream input = response.body()) {
             if (response.statusCode() < 200 || response.statusCode() >= 300)
                 throw new IOException("Download failed: HTTP " + response.statusCode());
@@ -87,30 +93,61 @@ public final class HttpService implements AutoCloseable {
             Path target = root.resolve(filename(response)).normalize();
             if (!target.getParent().equals(root)) throw new IOException("Invalid download filename");
             temporary = Files.createTempFile(root, ".browser-", ".part");
-            long bytes;
+            OptionalLong total = response.headers().firstValueAsLong("Content-Length");
+            long bytes = 0;
+            long lastUpdate = System.nanoTime();
+            long lastReportedBytes = 0;
+            onProgress.accept(new DownloadProgress(0, total));
             try (OutputStream output = Files.newOutputStream(temporary)) {
-                bytes = input.transferTo(output);
+                byte[] buffer = new byte[64 * 1024];
+                result.lastRead = System.nanoTime();
+                idleCheck = downloadWatchdog.scheduleWithFixedDelay(result::checkIdle, 1, 1, TimeUnit.SECONDS);
+                while (!result.isDone()) {
+                    int count = input.read(buffer);
+                    if (count == -1) break;
+                    result.lastRead = System.nanoTime();
+                    output.write(buffer, 0, count);
+                    bytes += count;
+                    long now = System.nanoTime();
+                    if (now - lastUpdate >= TimeUnit.MILLISECONDS.toNanos(100)) {
+                        onProgress.accept(new DownloadProgress(bytes, total));
+                        lastUpdate = now;
+                        lastReportedBytes = bytes;
+                    }
+                }
+                idleCheck.cancel(false);
             }
+            if (!result.isDone() && bytes != lastReportedBytes)
+                onProgress.accept(new DownloadProgress(bytes, total));
             synchronized (result) {
                 if (result.isDone()) return;
                 // A non-replacing move is the publication guard, including concurrent downloads.
                 Path destination = target;
-                for (int n = 1; ; n++) {
-                    try {
-                        Files.move(temporary, destination);
-                        break;
-                    } catch (FileAlreadyExistsException occupied) {
-                        destination = root.resolve(n + "-" + target.getFileName());
+                synchronized (downloadPublication) {
+                    for (int n = 1; ; n++) {
+                        try {
+                            Files.move(temporary, destination);
+                            break;
+                        } catch (FileAlreadyExistsException occupied) {
+                            destination = root.resolve(n + "-" + target.getFileName());
+                        }
                     }
                 }
                 temporary = null;
                 result.complete(new DownloadResult(destination, bytes));
             }
         } catch (Exception error) {
-            result.completeExceptionally(error);
+            failure = error;
         } finally {
-            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
+            if (idleCheck != null) idleCheck.cancel(false);
+            if (temporary != null) try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException cleanupError) {
+                if (failure == null) failure = cleanupError;
+                else failure.addSuppressed(cleanupError);
+            }
             result.closeStream();
+            if (failure != null) result.completeExceptionally(failure);
         }
     }
 
@@ -152,12 +189,22 @@ public final class HttpService implements AutoCloseable {
     @Override public void close() {
         closed = true;
         outstanding.forEach(future -> future.cancel(true));
+        downloadWatchdog.shutdownNow();
         executor.shutdownNow();
     }
 
     private static final class DownloadFuture extends CompletableFuture<DownloadResult> {
         volatile InputStream stream;
+        volatile long lastRead;
+
         @Override public synchronized boolean cancel(boolean interrupt) { return super.cancel(interrupt); }
+
+        synchronized void checkIdle() {
+            if (!isDone() && System.nanoTime() - lastRead >= DOWNLOAD_IDLE_NANOS) {
+                completeExceptionally(new HttpTimeoutException("Download stopped receiving data"));
+            }
+        }
+
         void closeStream() {
             InputStream current = stream;
             if (current != null) try { current.close(); } catch (IOException ignored) { }

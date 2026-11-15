@@ -5,3 +5,6 @@
 mvnw text eol=lf
 *.jar binary
 *.png binary
+Lab4-Web/public/*.pdf binary
+Lab4-Web/public/*.mp3 binary
+Lab4-Web/public/*.mp4 binary
