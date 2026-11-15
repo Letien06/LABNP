@@ -1,10 +1,7 @@
 package com.ronial.app.views;
 
-import com.ronial.app.context.ContextProvider;
 import com.ronial.app.mail.MailService;
 import com.ronial.app.models.Email;
-import com.ronial.app.views.components.ButtonComponent;
-import com.ronial.app.views.components.InputComponent;
 import com.ronial.app.views.utils.Toast;
 
 import javax.swing.*;
@@ -20,29 +17,33 @@ public class TransferMailView extends JFrame {
         setIconImage(new ImageIcon(Objects.requireNonNull(getClass().getResource("/assets/Email-icon.png"))).getImage());
         this.mailView = mailView;
         this.email = email;
-        MailService mailService = ContextProvider.get(MailService.class);
-        setTitle("Transfer mail - " + email.getSubject());
-        setSize(800, 200);
-        setLayout(new BorderLayout());
-        setLocationRelativeTo(null);
+        MailService mailService = mailView.getMailService();
+        setTitle("Chuyển tiếp thư - " + email.getSubject());
+        setUndecorated(true);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
 
-        JPanel composePanel = new JPanel(new GridLayout(2, 1, 5, 5));
-        composePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(Color.WHITE);
+        card.setBorder(BorderFactory.createLineBorder(new Color(0xdadce0)));
+        setContentPane(card);
+        card.add(CreateMailView.composerHeader(this, "Chuyển tiếp thư"), BorderLayout.NORTH);
 
-        Font font = new Font("Arial", Font.PLAIN, 19);
+        JPanel composePanel = new JPanel(new BorderLayout(0, 10));
+        composePanel.setOpaque(false);
+        composePanel.setBorder(BorderFactory.createEmptyBorder(0, 16, 10, 16));
+        emailsField = new JTextField();
+        emailsField.setToolTipText("Phân tách nhiều địa chỉ bằng dấu phẩy");
+        composePanel.add(CreateMailView.fieldRow("Đến", emailsField), BorderLayout.NORTH);
 
-        emailsField = InputComponent.createTextField();
-        emailsField.setFont(font);
+        JLabel subject = new JLabel();
+        subject.putClientProperty("html.disable", true);
+        subject.setText(email.getSubject());
+        subject.setToolTipText(email.getSubject());
+        subject.setForeground(new Color(0x5f6368));
+        composePanel.add(subject, BorderLayout.CENTER);
 
-
-        composePanel.add(new JLabel("Danh sách email cần chuyển tiếp ( dùng dấu , để ngăn cách):"));
-        composePanel.add(emailsField);
-
-        add(composePanel, BorderLayout.NORTH);
-
-        JButton sendButton = new JButton("Gửi");
-        ButtonComponent.styleButton(sendButton);
+        JButton sendButton = CreateMailView.primaryButton("Gửi");
         sendButton.addActionListener(e -> {
             try {
                 mailService.transferMail(this);
@@ -51,7 +52,14 @@ public class TransferMailView extends JFrame {
             }
         });
 
-        add(sendButton, BorderLayout.SOUTH);
+        JPanel actions = new JPanel(new BorderLayout());
+        actions.setOpaque(false);
+        actions.add(sendButton, BorderLayout.WEST);
+        composePanel.add(actions, BorderLayout.SOUTH);
+        card.add(composePanel, BorderLayout.CENTER);
+        getRootPane().setDefaultButton(sendButton);
+        CreateMailView.anchorComposer(this, mailView, new Dimension(560, 180));
         setVisible(true);
+        emailsField.requestFocusInWindow();
     }
 }

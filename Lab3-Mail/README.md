@@ -72,8 +72,9 @@ delivery to the sender's mailbox with an `X-Lab3-Folder: sent` header. Gmail's
 Sent folder is not exposed by POP3. For Ya-mail, the account service saves read
 status and drafts in the same database as SMTP/POP3. **Làm mới** runs in the
 background. The client checks UIDL and retrieves only uncached messages while
-the account is open. **Tùy chọn thư → Thư nháp** lets you preview and continue
-drafts saved from the compose window.
+the account is open. Choose **Thư nháp** in the sidebar to continue a saved
+draft. Search by subject, sender, recipient, or message body. Press Ctrl+N
+to compose or Ctrl+F to focus search.
 
 ## Send from Ya-mail to an external address
 

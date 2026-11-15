@@ -2,16 +2,16 @@ package com.ronial.app.views;
 
 import com.ronial.app.mail.MailService;
 import com.ronial.app.mail.ProtocolMailService;
-import com.ronial.app.views.components.ButtonComponent;
-import com.ronial.app.views.components.InputComponent;
 import com.ronial.app.views.utils.Toast;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.MouseInputAdapter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.awt.*;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
@@ -42,43 +42,44 @@ public class CreateMailView extends JFrame {
         this.mailView = mailView;
         MailService mailService = mailView.getMailService();
         setTitle("Soạn mail - " + mailView.getUser().getName() + " - "+ mailView.getUser().getEmail());
-        setSize(1000, 800);
-        setLayout(new BorderLayout(0, 8));
-        getContentPane().setBackground(new Color(247, 249, 252));
-        setLocationRelativeTo(null);
+        setUndecorated(true);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
 
-        JPanel composePanel = new JPanel(new GridBagLayout());
-        composePanel.setBackground(Color.WHITE);
-        composePanel.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(new Color(220,226,234)), BorderFactory.createEmptyBorder(16,18,12,18)));
-        GridBagConstraints gc = new GridBagConstraints(); gc.fill = GridBagConstraints.HORIZONTAL; gc.weightx = 1; gc.insets = new Insets(4,4,4,4);
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(Color.WHITE);
+        card.setBorder(BorderFactory.createLineBorder(new Color(0xdadce0)));
+        setContentPane(card);
+        card.add(composerHeader(this, restored == null ? "Thư mới" : "Thư nháp"), BorderLayout.NORTH);
 
-        Font font = new Font("Arial Unicode MS", Font.PLAIN, 19);
+        JPanel editor = new JPanel(new BorderLayout());
+        editor.setOpaque(false);
+        editor.setBorder(BorderFactory.createEmptyBorder(0, 16, 0, 16));
+        card.add(editor, BorderLayout.CENTER);
 
-        recipientField = InputComponent.createTextField();
-        recipientField.setFont(font);
-
-        subjectField = InputComponent.createTextField();
-        subjectField.setFont(font);
-
-        attachLink = InputComponent.createTextField();
-        attachLink.setFont(font);
+        JPanel addressRows = new JPanel(new GridLayout(0, 1));
+        addressRows.setOpaque(false);
+        recipientField = new JTextField();
+        subjectField = new JTextField();
+        attachLink = new JTextField();
+        attachLink.setToolTipText("Phân tách nhiều liên kết bằng dấu chấm phẩy");
+        addressRows.add(fieldRow("Đến", recipientField));
+        addressRows.add(fieldRow("Tiêu đề", subjectField));
+        addressRows.add(fieldRow("Liên kết", attachLink));
+        editor.add(addressRows, BorderLayout.NORTH);
 
         messageArea = new JTextArea();
-        messageArea.setFont(new Font("Arial Unicode MS", Font.PLAIN, 20));
+        messageArea.getAccessibleContext().setAccessibleName("Nội dung thư");
+        messageArea.setForeground(new Color(0x202124));
+        messageArea.setFont(COMPOSER_FONT);
         messageArea.setLineWrap(true);
         messageArea.setWrapStyleWord(true);
-
-        gc.gridx=0; gc.gridy=0; composePanel.add(new JLabel("Đến"), gc); gc.gridy=1; composePanel.add(recipientField, gc);
-        gc.gridy=2; composePanel.add(new JLabel("Tiêu đề"), gc); gc.gridy=3; composePanel.add(subjectField, gc);
-        gc.gridy=4; composePanel.add(new JLabel("Liên kết đính kèm (phân tách bằng ; )"), gc); gc.gridy=5; composePanel.add(attachLink, gc);
-
-        add(composePanel, BorderLayout.NORTH);
+        messageArea.setBorder(BorderFactory.createEmptyBorder(12, 0, 6, 0));
         JScrollPane messageScrollPane = new JScrollPane(messageArea);
-        add(messageScrollPane, BorderLayout.CENTER);
+        messageScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        editor.add(messageScrollPane, BorderLayout.CENTER);
 
-        sendButton = new JButton("Gửi thư");
-        ButtonComponent.styleButton(sendButton);
+        sendButton = primaryButton("Gửi");
         sendButton.addActionListener(e -> {
             try {
                 if (draftService == null) mailService.sendMail(this);
@@ -88,32 +89,160 @@ public class CreateMailView extends JFrame {
             }
         });
 
-        JPanel actions = new JPanel(new BorderLayout(12, 0));
-        actions.setBorder(BorderFactory.createEmptyBorder(4, 12, 8, 10));
+        JPanel actions = new JPanel(new BorderLayout(0, 4));
+        actions.setBorder(BorderFactory.createEmptyBorder(4, 16, 12, 16));
         actions.setOpaque(false);
+        JPanel commandRow = new JPanel(new BorderLayout(8, 0));
+        commandRow.setOpaque(false);
+        commandRow.add(sendButton, BorderLayout.WEST);
+        actions.add(commandRow, BorderLayout.NORTH);
         if (mailService instanceof ProtocolMailService protocol && protocol.usesLocalServer()) {
-            JPanel relayControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            JPanel relayControls = new JPanel(new BorderLayout(8, 0));
             relayControls.setOpaque(false);
-            JButton connect = new JButton("Kết nối Gmail");
-            JLabel status = new JLabel("Đang kiểm tra kết nối Gmail…");
+            JButton connect = textButton("Kết nối Gmail");
+            JLabel status = statusLabel("Đang kiểm tra kết nối Gmail…");
             if (protocol.canConfigureGmailRelay()) {
                 connect.setToolTipText("Dùng Gmail của bạn để gửi thư đến địa chỉ bên ngoài Ya-mail");
                 connect.addActionListener(e -> configureRelay(protocol, connect, status));
-                relayControls.add(connect);
+                relayControls.add(connect, BorderLayout.WEST);
             }
-            relayControls.add(status);
-            actions.add(relayControls, BorderLayout.CENTER);
+            relayControls.add(status, BorderLayout.CENTER);
+
             initDrafts(protocol, restored);
-            JPanel draftControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-            draftControls.setOpaque(false);
-            draftControls.add(discardButton);
-            draftControls.add(draftStatus);
-            actions.add(draftControls, BorderLayout.SOUTH);
+            commandRow.add(discardButton, BorderLayout.EAST);
+            JPanel statusRows = new JPanel(new GridLayout(0, 1, 0, 2));
+            statusRows.setOpaque(false);
+            statusRows.add(relayControls);
+            statusRows.add(draftStatus);
+            actions.add(statusRows, BorderLayout.SOUTH);
             refreshRelayStatus(protocol, connect, status);
         }
-        actions.add(sendButton, BorderLayout.EAST);
-        add(actions, BorderLayout.SOUTH);
+        card.add(actions, BorderLayout.SOUTH);
+        anchorComposer(this, mailView, new Dimension(560, 530));
         setVisible(true);
+        recipientField.requestFocusInWindow();
+    }
+
+    private static final Font COMPOSER_FONT = new Font("Segoe UI", Font.PLAIN, 14);
+
+    static JPanel composerHeader(JFrame composer, String title) {
+        JPanel header = new JPanel(new BorderLayout(8, 0));
+        header.setBackground(new Color(0xedf2fa));
+        header.setBorder(BorderFactory.createEmptyBorder(5, 16, 5, 10));
+        JLabel caption = new JLabel(title);
+        caption.setFont(COMPOSER_FONT.deriveFont(Font.BOLD));
+        caption.setForeground(new Color(0x041e49));
+        JButton close = textButton("×");
+        close.setFont(COMPOSER_FONT.deriveFont(20f));
+        close.setToolTipText("Đóng cửa sổ");
+        close.getAccessibleContext().setAccessibleName("Đóng cửa sổ");
+        close.addActionListener(e -> composer.dispatchEvent(
+                new java.awt.event.WindowEvent(composer, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+        MouseInputAdapter drag = new MouseInputAdapter() {
+            private Point offset;
+
+            @Override public void mousePressed(MouseEvent event) {
+                if (!SwingUtilities.isLeftMouseButton(event)) return;
+                offset = event.getLocationOnScreen();
+                offset.translate(-composer.getX(), -composer.getY());
+            }
+
+            @Override public void mouseDragged(MouseEvent event) {
+                if (offset != null) composer.setLocation(event.getXOnScreen() - offset.x, event.getYOnScreen() - offset.y);
+            }
+
+            @Override public void mouseReleased(MouseEvent event) {
+                offset = null;
+            }
+        };
+        header.addMouseListener(drag);
+        header.addMouseMotionListener(drag);
+        caption.addMouseListener(drag);
+        caption.addMouseMotionListener(drag);
+        header.add(caption, BorderLayout.CENTER);
+        header.add(close, BorderLayout.EAST);
+        return header;
+    }
+
+    static JPanel fieldRow(String title, JTextField input) {
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xe8eaed)),
+                BorderFactory.createEmptyBorder(8, 0, 8, 0)));
+        JLabel label = new JLabel(title);
+        label.setFont(COMPOSER_FONT);
+        label.setForeground(new Color(0x5f6368));
+        label.setPreferredSize(new Dimension(62, 20));
+        label.setLabelFor(input);
+        input.setBorder(BorderFactory.createEmptyBorder());
+        input.setFont(COMPOSER_FONT);
+        input.setForeground(new Color(0x202124));
+        row.add(label, BorderLayout.WEST);
+        row.add(input, BorderLayout.CENTER);
+        return row;
+    }
+
+    static JButton textButton(String title) {
+        JButton button = new JButton(title);
+        button.setFont(COMPOSER_FONT.deriveFont(13f));
+        button.setForeground(new Color(0x0b57d0));
+        button.setContentAreaFilled(false);
+        button.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return button;
+    }
+
+    static JButton primaryButton(String title) {
+        JButton button = new JButton(title) {
+            @Override protected void paintComponent(Graphics graphics) {
+                Graphics2D paint = (Graphics2D) graphics.create();
+                paint.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color background = new Color(0x0b57d0);
+                if (!isEnabled()) background = new Color(0x767d89);
+                else if (getModel().isPressed()) background = new Color(0x0842a0);
+                else if (getModel().isRollover()) background = new Color(0x1765da);
+                paint.setColor(background);
+                paint.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+                if (hasFocus()) {
+                    paint.setColor(Color.WHITE);
+                    paint.drawRoundRect(2, 2, getWidth() - 5, getHeight() - 5, getHeight() - 4, getHeight() - 4);
+                }
+                paint.dispose();
+                super.paintComponent(graphics);
+            }
+        };
+        button.setContentAreaFilled(false);
+        button.setForeground(Color.WHITE);
+        button.setFont(COMPOSER_FONT.deriveFont(Font.BOLD));
+        button.setBorder(BorderFactory.createEmptyBorder(9, 24, 9, 24));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return button;
+    }
+
+    private static JLabel statusLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setForeground(new Color(0x5f6368));
+        label.setFont(COMPOSER_FONT.deriveFont(12f));
+        label.addPropertyChangeListener("text", event -> label.setToolTipText(label.getText()));
+        label.setToolTipText(text);
+        return label;
+    }
+
+    static void anchorComposer(JFrame composer, JFrame owner, Dimension preferredSize) {
+        GraphicsConfiguration configuration = owner.getGraphicsConfiguration();
+        Rectangle workArea = configuration.getBounds();
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(configuration);
+        workArea.x += insets.left;
+        workArea.y += insets.top;
+        workArea.width -= insets.left + insets.right;
+        workArea.height -= insets.top + insets.bottom;
+        Rectangle ownerBounds = owner.getBounds();
+        int width = Math.min(preferredSize.width, workArea.width);
+        int height = Math.min(preferredSize.height, workArea.height);
+        int x = Math.min(ownerBounds.x + ownerBounds.width - width - 24, workArea.x + workArea.width - width);
+        int y = Math.min(ownerBounds.y + ownerBounds.height - height - 12, workArea.y + workArea.height - height);
+        composer.setBounds(Math.max(workArea.x, x), Math.max(workArea.y, y), width, height);
     }
 
     private void initDrafts(ProtocolMailService protocol, ProtocolMailService.Draft restored) {
@@ -127,8 +256,8 @@ public class CreateMailView extends JFrame {
             attachLink.setText(restored.links());
         }
 
-        draftStatus = new JLabel(restored == null ? "" : "Đã lưu thư nháp");
-        discardButton = new JButton("Bỏ thư nháp");
+        draftStatus = statusLabel(restored == null ? "" : "Đã lưu thư nháp");
+        discardButton = textButton("Bỏ thư nháp");
         discardButton.addActionListener(e -> {
             if (JOptionPane.showConfirmDialog(this, "Bỏ thư nháp này?", "Thư nháp",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
@@ -331,7 +460,7 @@ public class CreateMailView extends JFrame {
             connect.setText("Kết nối Gmail");
             status.setText(protocol.canConfigureGmailRelay()
                     ? "Gửi ra ngoài cần kết nối Gmail"
-                    : "Chạy run-client.ps1 để cấu hình Gmail gửi đi");
+                    : "Chưa cấu hình Gmail gửi đi");
         } else {
             connect.setText("Đổi Gmail gửi đi");
             status.setText("Gmail gửi đi: " + sender);
